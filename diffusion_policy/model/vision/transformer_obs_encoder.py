@@ -134,7 +134,7 @@ class TransformerObsEncoder(ModuleAttrMixin):
                 # Use all tokens from ViT
                 pass
             elif self.feature_aggregation != 'cls':
-                logger.warn(f'vit will use the CLS token. feature_aggregation ({self.feature_aggregation}) is ignored!')
+                logger.warning(f'vit will use the CLS token. feature_aggregation ({self.feature_aggregation}) is ignored!')
                 self.feature_aggregation = 'cls'
         
         if self.feature_aggregation == 'soft_attention':
