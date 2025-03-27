@@ -20,11 +20,11 @@ def main():
 
     dev_video_path = '/dev/video0'
 
-    # enumerate UBS device to find Elgato Capture Card
+    # enumerate UBS device to find AVerMedia Capture Card
     device_list = create_usb_list()
     dev_usb_path = None
     for dev in device_list:
-        if 'Elgato' in dev['description']:
+        if 'AVerMedia' in dev['description']:
             dev_usb_path = dev['path']
             print('Found :', dev['description'])
             break
@@ -35,8 +35,8 @@ def main():
     with SharedMemoryManager() as shm_manager:
         with UvcCamera(
             shm_manager=shm_manager,
-            dev_video_path=dev_video_path,
-            dev_usb_path=dev_usb_path
+            dev_video_path=dev_video_path
+            # dev_usb_path=dev_usb_path
         ) as camera:
             print('Ready!')
             t_start = time.monotonic()
