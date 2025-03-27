@@ -21,27 +21,36 @@ class Command(enum.Enum):
     SERVOL = 1
     SCHEDULE_WAYPOINT = 2
 
-tx_flangerot90_tip = np.identity(4)
-tx_flangerot90_tip[:3, 3] = np.array([-0.0336, 0, 0.247])
+# tx_flangerot90_tip = np.identity(4)
+# tx_flangerot90_tip[:3, 3] = np.array([-0.0336, 0, 0.247])
 
-tx_flangerot45_flangerot90 = np.identity(4)
-tx_flangerot45_flangerot90[:3,:3] = st.Rotation.from_euler('x', [np.pi/2]).as_matrix()
+# tx_flangerot45_flangerot90 = np.identity(4)
+# tx_flangerot45_flangerot90[:3,:3] = st.Rotation.from_euler('x', [np.pi/2]).as_matrix()
 
-tx_flange_flangerot45 = np.identity(4)
-tx_flange_flangerot45[:3,:3] = st.Rotation.from_euler('z', [np.pi/4]).as_matrix()
+# tx_flange_flangerot45 = np.identity(4)
+# tx_flange_flangerot45[:3,:3] = st.Rotation.from_euler('z', [np.pi/4]).as_matrix()
 
-tx_flange_tip = tx_flange_flangerot45 @ tx_flangerot45_flangerot90 @tx_flangerot90_tip
-tx_tip_flange = np.linalg.inv(tx_flange_tip)
+# tx_flange_tip = tx_flange_flangerot45 @ tx_flangerot45_flangerot90 @tx_flangerot90_tip
+# tx_tip_flange = np.linalg.inv(tx_flange_tip)
 
 class FrankaInterface:
-    def __init__(self, ip='172.16.0.3', port=4242):
+    # IP Address of NUC Labwork 4
+    def __init__(self, ip='129.97.71.27', port=4242):
         self.server = zerorpc.Client(heartbeat=20)
         self.server.connect(f"tcp://{ip}:{port}")
 
+    # def get_ee_pose(self):
+    #     flange_pose = np.array(self.server.get_ee_pose())
+    #     tip_pose = mat_to_pose(pose_to_mat(flange_pose) @ tx_flange_tip)
+    #     return tip_pose
+
     def get_ee_pose(self):
-        flange_pose = np.array(self.server.get_ee_pose())
-        tip_pose = mat_to_pose(pose_to_mat(flange_pose) @ tx_flange_tip)
-        return tip_pose
+        data = self.server.get_ee_pose()
+        print(f"Received data: {data}") 
+        pos = np.array(data[:3])
+        rot_vec = np.array(data[3:])
+        print(f"Position: {pos}, Rotation Vector: {rot_vec}")
+        return np.concatenate([pos, rot_vec])
     
     def get_joint_positions(self):
         return np.array(self.server.get_joint_positions())
@@ -280,11 +289,13 @@ class FrankaInterpolationController(mp.Process):
                 # diff = t_now - pose_interp.times[-1]
                 # if diff > 0:
                 #     print('extrapolate', diff)
-                tip_pose = pose_interp(t_now)
-                flange_pose = mat_to_pose(pose_to_mat(tip_pose) @ tx_tip_flange)
 
+                # tip_pose = pose_interp(t_now)
+                # flange_pose = mat_to_pose(pose_to_mat(tip_pose) @ tx_tip_flange)
+
+                ee_pose = pose_interp(t_now)
                 # send command to robot
-                robot.update_desired_ee_pose(flange_pose)
+                robot.update_desired_ee_pose(ee_pose)
 
                 # update robot state
                 state = dict()
