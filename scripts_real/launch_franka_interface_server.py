@@ -30,8 +30,7 @@ class FrankaInterface:
         )
     
     def start_cartesian_impedance(self, Kx, Kxd):
-        self.robot.start_cartesian_impedance(        self.gripper.get_state()
-
+        self.robot.start_cartesian_impedance(
             Kx=torch.Tensor(Kx),
             Kxd=torch.Tensor(Kxd)
         )
