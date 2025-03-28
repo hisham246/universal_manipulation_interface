@@ -1,5 +1,5 @@
 import zerorpc
-from polymetis import RobotInterface
+from polymetis import RobotInterface, GripperInterface
 import scipy.spatial.transform as st
 import numpy as np
 import torch
@@ -7,7 +7,9 @@ import torch
 class FrankaInterface:
     def __init__(self):
         self.robot = RobotInterface('localhost')
+        self.gripper = GripperInterface('localhost')
 
+    # Robot methods
     def get_ee_pose(self):
         data = self.robot.get_ee_pose()
         pos = data[0].numpy()
@@ -28,7 +30,8 @@ class FrankaInterface:
         )
     
     def start_cartesian_impedance(self, Kx, Kxd):
-        self.robot.start_cartesian_impedance(
+        self.robot.start_cartesian_impedance(        self.gripper.get_state()
+
             Kx=torch.Tensor(Kx),
             Kxd=torch.Tensor(Kxd)
         )
@@ -42,6 +45,16 @@ class FrankaInterface:
 
     def terminate_current_policy(self):
         self.robot.terminate_current_policy()
+
+    # Gripper methods
+    def get_state(self):
+        self.gripper.get_state()
+    
+    def goto(self, width, speed, force):
+        self.gripper.goto(width, speed, force)
+    
+    def grasp(self, speed, force, grasp_width):
+        self.gripper.grasp(speed, force, grasp_width)
 
 s = zerorpc.Server(FrankaInterface())
 s.bind("tcp://0.0.0.0:4242")
