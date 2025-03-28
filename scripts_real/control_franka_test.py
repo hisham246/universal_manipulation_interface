@@ -24,12 +24,12 @@ from umi.real_world.franka_interpolation_controller import FrankaInterpolationCo
 
 # %%
 @click.command()
-@click.option('-rh', '--robot_hostname', default='172.16.0.3')
+@click.option('-rh', '--robot_hostname', default='129.97.71.27')
 # @click.option('-gh', '--gripper_hostname', default='172.24.95.27')
 # @click.option('-gp', '--gripper_port', type=int, default=1000)
 @click.option('-f', '--frequency', type=float, default=30)
 # @click.option('-gs', '--gripper_speed', type=float, default=200.0)
-def main(robot_hostname, gripper_hostname, gripper_port, frequency, gripper_speed):
+def main(robot_hostname, frequency):
     max_pos_speed = 0.25
     max_rot_speed = 0.6
     max_gripper_width = 90.
@@ -108,13 +108,13 @@ def main(robot_hostname, gripper_hostname, gripper_port, frequency, gripper_spee
                         st.Rotation.from_rotvec(target_pose[3:])
                 ).as_rotvec()
 
-                dpos = 0
-                if sm.is_button_pressed(0):
-                    # close gripper
-                    dpos = -gripper_speed / frequency
-                if sm.is_button_pressed(1):
-                    dpos = gripper_speed / frequency
-                gripper_target_pos = np.clip(gripper_target_pos + dpos, 0, max_gripper_width)
+                # dpos = 0
+                # if sm.is_button_pressed(0):
+                #     # close gripper
+                #     dpos = -gripper_speed / frequency
+                # if sm.is_button_pressed(1):
+                #     dpos = gripper_speed / frequency
+                # gripper_target_pos = np.clip(gripper_target_pos + dpos, 0, max_gripper_width)
 
                 controller.schedule_waypoint(target_pose, 
                     t_command_target-time.monotonic()+time.time())
