@@ -47,12 +47,17 @@ class FrankaInterface:
 
     # Gripper methods
     def get_gripper_state(self):
-        self.gripper.get_state()
+        gripper_state = self.gripper.get_state()
+        gripper_state_dict = {
+            "timestamp": {"seconds": gripper_state.timestamp.seconds, "nanoseconds": gripper_state.timestamp.nanos},
+            "width": gripper_state.width
+        }
+        return gripper_state_dict
     
-    def goto(self, width, speed, force):
+    def gripper_goto(self, width, speed, force):
         self.gripper.goto(width, speed, force)
     
-    def grasp(self, speed, force, grasp_width):
+    def gripper_grasp(self, speed, force, grasp_width):
         self.gripper.grasp(speed, force, grasp_width)
 
 s = zerorpc.Server(FrankaInterface())
