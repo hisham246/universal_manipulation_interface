@@ -46,7 +46,7 @@ class FrankaInterface:
         self.robot.terminate_current_policy()
 
     # Gripper methods
-    def get_state(self):
+    def get_gripper_state(self):
         self.gripper.get_state()
     
     def goto(self, width, speed, force):
