@@ -38,7 +38,7 @@ class FrankaHandController(mp.Process):
 
             if last_width is not None:
                 print(f"[Streaming] Sending width: {last_width:.3f}")
-                client.goto(last_width, self.speed, self.force)
+                client.gripper_goto(last_width, self.speed, self.force)
 
             time.sleep(self.update_dt)
 
