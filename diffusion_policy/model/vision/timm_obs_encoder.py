@@ -260,6 +260,8 @@ class TimmObsEncoder(ModuleAttrMixin):
         for key in self.rgb_keys:
             img = obs_dict[key]
             B, T = img.shape[:2]
+            print("1:", img.shape[2:])
+            print("2:", self.key_shape_map[key])
             assert B == batch_size
             assert img.shape[2:] == self.key_shape_map[key]
             img = img.reshape(B*T, *img.shape[2:])

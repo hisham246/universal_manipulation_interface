@@ -13,6 +13,12 @@ class FrankaHandController(mp.Process):
         self.command_queue = mp.Queue()
         self._stop_event = mp.Event()
 
+    def get_state(self):
+        client = zerorpc.Client()
+        client.connect(f"tcp://{self.host}:{self.port}")
+        state = client.get_gripper_state()
+        return state
+        
     def send_target(self, width):
         self.command_queue.put(width)
 
@@ -49,6 +55,7 @@ if __name__ == "__main__":
     streamer.start()
 
     try:
+        print("State:", streamer.get_state()['timestamp']['seconds'])
         widths = [0.08, 0.06, 0.07, 0.02, 0.05, 0.07, 0.1]
         for w in widths:
             streamer.send_target(w)

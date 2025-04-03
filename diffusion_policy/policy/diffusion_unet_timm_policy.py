@@ -126,6 +126,7 @@ class DiffusionUnetTimmPolicy(BaseImagePolicy):
         result: must include "action" key
         """
         assert 'past_action' not in obs_dict # not implemented yet
+        print("Normalizer keys:", list(self.normalizer.params_dict.keys()))
         # normalize input
         nobs = self.normalizer.normalize(obs_dict)
         B = next(iter(nobs.values())).shape[0]

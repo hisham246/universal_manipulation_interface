@@ -46,10 +46,10 @@ class FrankaInterface:
 
     def get_ee_pose(self):
         data = self.server.get_ee_pose()
-        print(f"Received data: {data}") 
+        # print(f"Received data: {data}") 
         pos = np.array(data[:3])
         rot_vec = np.array(data[3:])
-        print(f"Position: {pos}, Rotation Vector: {rot_vec}")
+        # print(f"Position: {pos}, Rotation Vector: {rot_vec}")
         return np.concatenate([pos, rot_vec])
     
     def get_joint_positions(self):

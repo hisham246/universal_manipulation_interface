@@ -20,8 +20,8 @@ from multiprocessing.managers import SharedMemoryManager
 import scipy.spatial.transform as st
 from umi.real_world.spacemouse_shared_memory import Spacemouse
 from umi.real_world.uvc_camera import UvcCamera
-from umi.real_world.rtde_interpolation_controller import RTDEInterpolationController
-from umi.real_world.wsg_controller import WSGController
+from umi.real_world.franka_interpolation_controller import FrankaInterpolationController
+from umi.real_world.franka_hand_controller import FrankaHandController
 from umi.real_world.keystroke_counter import KeystrokeCounter, KeyCode, Key
 from umi.common.usb_util import create_usb_list
 from umi.common.precise_sleep import precise_wait
@@ -36,7 +36,7 @@ from umi.common.pose_util import mat_to_pose, pose10d_to_mat, mat_to_pose
 def get_obs_dict(camera, controller, gripper, n_obs_steps, img_tf):
     camera_data = camera.get(k=n_obs_steps)
     robot_data = controller.get_all_state()
-    gripper_data = gripper.get_all_state()
+    gripper_data = gripper.get_state()
 
     raw_imgs = camera_data['color']
     img_timestamps = camera_data['camera_capture_timestamp']
@@ -48,15 +48,20 @@ def get_obs_dict(camera, controller, gripper, n_obs_steps, img_tf):
     # T,H,W,C to T,C,H,W
     imgs = np.moveaxis(imgs,-1,1).astype(np.float32) / 255.
 
-    gripper_interp = get_interp1d(
-        t=gripper_data['gripper_receive_timestamp'],
-        x=gripper_data['gripper_position'] / 1000) # mm to meters
+    # gripper_interp = get_interp1d(
+    #     t=gripper_data['gripper_receive_timestamp'],
+    #     x=gripper_data['gripper_position'] / 1000) # mm to meters
+
+    # gripper_interp = get_interp1d(
+    #     t=gripper_data['timestamp']['seconds'],
+    #     x=gripper_data['width']) # meters
     robot_interp = PoseInterpolator(
         t=robot_data['robot_receive_timestamp'],
         x=robot_data['ActualTCPPose'])
 
     robot_eef_pose = robot_interp(img_timestamps).astype(np.float32)
-    gripper_width = gripper_interp(img_timestamps).astype(np.float32)
+    # gripper_width = gripper_interp(img_timestamps).astype(np.float32)
+    gripper_width = np.float32(gripper_data['width'])
 
     obs_dict = {
         'img': imgs,
@@ -68,18 +73,27 @@ def get_obs_dict(camera, controller, gripper, n_obs_steps, img_tf):
     
 # %%
 @click.command()
-@click.option('-i', '--input', required=True)
-@click.option('-rh', '--robot_hostname', default='ur-2017356986.internal.tri.global')
-@click.option('-gh', '--gripper_hostname', default='wsg50-00004544.internal.tri.global')
-@click.option('-gp', '--gripper_port', type=int, default=1000)
+# @click.option('-i', '--input', required=True)
+@click.option('-rh', '--robot_hostname', default='129.97.71.27')
+@click.option('-gh', '--gripper_hostname', default='129.97.71.27')
+@click.option('-gp', '--gripper_port', type=int, default=4242)
+@click.option('-gs', '--gripper_speed', type=float, default=0.05)
+@click.option('-gf', '--gripper_force', type=float, default=20.0)
 @click.option('-f', '--frequency', type=float, default=30)
-@click.option('-v', '--video_path', default='/dev/video0')
+@click.option('-v', '--video_path', default='/dev/video2')
 @click.option('-s', '--steps_per_inference', type=int, default=16)
-def main(input, robot_hostname, gripper_hostname, gripper_port, frequency, video_path, steps_per_inference):
+def main(robot_hostname, 
+         gripper_hostname, 
+         gripper_port, 
+         gripper_speed, 
+         gripper_force, 
+         frequency, 
+         video_path, 
+         steps_per_inference):
     cv2.setNumThreads(1)
 
     # load checkpoint
-    ckpt_path = input
+    ckpt_path = '/home/hisham246/uwaterloo/test_policy.ckpt'
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
     cfg = payload['cfg']
     cls = hydra.utils.get_class(cfg._target_)
@@ -87,31 +101,34 @@ def main(input, robot_hostname, gripper_hostname, gripper_port, frequency, video
     workspace: BaseWorkspace
     workspace.load_payload(payload, exclude_keys=None, include_keys=None)
 
+    print("Workspace", workspace)
+
+
     # diffusion model
     policy: BaseImagePolicy
     policy = workspace.model
     if cfg.training.use_ema:
         policy = workspace.ema_model
 
-    device = torch.device('cuda:0')
+    device = torch.device('cuda')
     policy.eval().to(device)
 
     # set inference params
     policy.num_inference_steps = 16
-    policy.n_action_steps = policy.horizon - policy.n_obs_steps + 1
-    n_obs_steps = policy.n_obs_steps
+    policy.n_action_steps = 8
+    n_obs_steps = 2
 
     # setup env
     max_pos_speed = 0.25
     max_rot_speed = 0.6
     cube_diag = np.linalg.norm([1,1,1])
 
-    # load tcp offset
-    tx_cam_gripper = np.array(
-        json.load(open('data/calibration/robot_world_hand_eye.json', 'r')
-                  )['tx_gripper2camera'])
-    tx_gripper_cam = np.linalg.inv(tx_cam_gripper)
-    tcp_offset_pose = mat_to_pose(tx_gripper_cam)
+    # # load tcp offset
+    # tx_cam_gripper = np.array(
+    #     json.load(open('data/calibration/robot_world_hand_eye.json', 'r')
+    #               )['tx_gripper2camera'])
+    # tx_gripper_cam = np.linalg.inv(tx_cam_gripper)
+    # tcp_offset_pose = mat_to_pose(tx_gripper_cam)
 
     # tcp_offset = 0
     dt = 1/frequency
@@ -122,7 +139,7 @@ def main(input, robot_hostname, gripper_hostname, gripper_port, frequency, video
     device_list = create_usb_list()
     dev_usb_path = None
     for dev in device_list:
-        if 'Elgato' in dev['description']:
+        if 'AVerMedia' in dev['description']:
             dev_usb_path = dev['path']
             print('Found :', dev['description'])
             break
@@ -133,36 +150,49 @@ def main(input, robot_hostname, gripper_hostname, gripper_port, frequency, video
         out_res=out_res, crop_ratio=0.65)
 
     with SharedMemoryManager() as shm_manager:
-        with KeystrokeCounter(
-        ) as key_counter,\
-        Spacemouse(shm_manager=shm_manager
-        ) as sm,\
-        UvcCamera(
-            shm_manager=shm_manager,
-            dev_video_path=dev_video_path,
-            dev_usb_path=dev_usb_path,
-            resolution=capture_res
-        ) as camera,\
-        WSGController(
-            shm_manager=shm_manager,
-            hostname=gripper_hostname,
+        # with KeystrokeCounter() as key_counter,\
+        # with FrankaInterpolationController(
+        #     shm_manager=shm_manager,
+        #     robot_ip=robot_hostname,
+        #     frequency=200,
+        #     Kx_scale=1.0,
+        #     Kxd_scale=np.array([2.0,1.5,2.0,1.0,1.0,1.0]),
+        #     verbose=False) as controller,\
+        # Spacemouse(shm_manager=shm_manager) as sm,\
+        # UvcCamera(shm_manager=shm_manager,
+        #           dev_video_path=dev_video_path,
+        #           resolution=capture_res) as camera,\
+        # FrankaHandController(
+        #     host=gripper_hostname,
+        #     port=gripper_port,
+        #     speed=gripper_speed,
+        #     force=gripper_force,
+        #     update_rate=frequency) as gripper:
+        gripper = FrankaHandController(
+            host=gripper_hostname,
             port=gripper_port,
-            frequency=frequency,
-            move_max_speed=400.0,
-            verbose=False
-        ) as gripper,\
-        RTDEInterpolationController(
-            shm_manager=shm_manager,
-            robot_ip=robot_hostname,
-            lookahead_time=0.05,
-            gain=1000,
-            max_pos_speed=max_pos_speed*cube_diag,
-            max_rot_speed=max_rot_speed*cube_diag,
-            tcp_offset_pose=tcp_offset_pose,
-            verbose=False
-        ) as controller:
+            speed=gripper_speed,
+            force=gripper_force,
+            update_rate=frequency
+        )
+        gripper.start()
+        with KeystrokeCounter() as key_counter, \
+            FrankaInterpolationController(
+                shm_manager=shm_manager,
+                robot_ip=robot_hostname,
+                frequency=100,
+                Kx_scale=5.0,
+                Kxd_scale=2.0,
+                verbose=False
+            ) as controller, \
+            Spacemouse(
+                shm_manager=shm_manager
+            ) as sm, \
+            UvcCamera(shm_manager=shm_manager,
+                      dev_video_path=dev_video_path,
+                      resolution=capture_res) as camera:
+            
             time.sleep(1.0)
-
             # policy warmup
             obs_dict_np, obs_timestamps = get_obs_dict(
                 camera=camera, 
@@ -173,7 +203,22 @@ def main(input, robot_hostname, gripper_hostname, gripper_port, frequency, video
             with torch.no_grad():
                 print("Warming up policy")
                 obs_dict = dict_apply(obs_dict_np, 
-                    lambda x: torch.from_numpy(x).unsqueeze(0).to(device))
+                    lambda x: torch.from_numpy(np.array(x)).unsqueeze(0).to(device))
+                
+                # print('Obs Dict:', obs_dict)
+                # Rename keys to match normalizer
+                if 'img' in obs_dict:
+                    obs_dict['camera0_rgb'] = obs_dict.pop('img')
+                if 'robot_eef_pose' in obs_dict:
+                    obs_dict['robot0_eef_pos'] = obs_dict['robot_eef_pose'][:, :, :3]
+                    obs_dict['robot0_eef_rot_axis_angle'] = obs_dict['robot_eef_pose'][:, :, 3:]
+                    obs_dict.pop('robot_eef_pose')
+                if 'gripper_width' in obs_dict:
+                    obs_dict['robot0_gripper_width'] = obs_dict.pop('gripper_width')
+
+                print("Expected shape:", policy.obs_encoder.key_shape_map['camera0_rgb'])
+                # obs_dict['camera0_rgb'] = obs_dict['camera0_rgb'][0, -1].reshape(3,224,224)
+                print("Actual shape:", obs_dict['camera0_rgb'].shape)
                 result = policy.predict_action(obs_dict)
                 action = result['action'][0].detach().to('cpu').numpy()
 
@@ -185,7 +230,7 @@ def main(input, robot_hostname, gripper_hostname, gripper_port, frequency, video
                 gripper_speed = 200.
                 state = controller.get_state()
                 target_pose = state['TargetTCPPose']
-                gripper_target_pos = gripper.get_state()['gripper_position']
+                gripper_target_pos = gripper.get_state()['width']
                 t_start = time.monotonic()
                 gripper.restart_put(t_start-time.monotonic() + time.time())
 
@@ -195,16 +240,17 @@ def main(input, robot_hostname, gripper_hostname, gripper_port, frequency, video
                     t_cycle_end = t_start + (iter_idx + 1) * dt
                     t_sample = t_cycle_end - command_latency
                     t_command_target = t_cycle_end + dt
+                    
+                    data = camera.get()
+                    img = data['color']
 
-                    vis_img = camera.get()['color']
-                    cv2.imshow('main camera', vis_img)
-                    key_stroke = cv2.pollKey()
-                    if key_stroke != -1:
-                        print(key_stroke)
-                    if key_stroke == ord('q'):
-                        exit(0)
-                    if key_stroke == ord('c'):
+                    # Display the resulting frame
+                    cv2.imshow('frame', img)
+                    if cv2.pollKey() & 0xFF == ord('q'):
                         break
+
+                    precise_wait(t_cycle_end)
+                    iter_idx += 1
 
                     precise_wait(t_sample)
                     sm_state = sm.get_motion_state_transformed()
@@ -224,13 +270,13 @@ def main(input, robot_hostname, gripper_hostname, gripper_port, frequency, video
                     if sm.is_button_pressed(1):
                         dpos = gripper_speed / frequency
                     gripper_target_pos = np.clip(gripper_target_pos + dpos, 0, 90.)
-    
+
                     if t_command_target > time.monotonic():
                         # skip outdated command
                         controller.schedule_waypoint(target_pose, 
                             t_command_target-time.monotonic()+time.time())
-                        gripper.schedule_waypoint(gripper_target_pos, 
-                            t_command_target-time.monotonic()+time.time())
+                        # gripper.schedule_waypoint(gripper_target_pos, 
+                        #     t_command_target-time.monotonic()+time.time())
 
                     precise_wait(t_cycle_end)
                     iter_idx += 1
@@ -296,11 +342,9 @@ def main(input, robot_hostname, gripper_hostname, gripper_port, frequency, video
                         robot_action = action[:,:6]
                         gripper_action = action[:,-1] * 1000 - 4 # m to mm
 
-                        for i in range(len(action_timestamps)):
-                            controller.schedule_waypoint(robot_action[i], 
-                                action_timestamps[i])
-                            gripper.schedule_waypoint(gripper_action[i], 
-                                action_timestamps[i])
+                        # for i in range(len(action_timestamps)):
+                        #     controller.schedule_waypoint(robot_action[i], action_timestamps[i])
+                        #     gripper.send_target(gripper_action[i] / 1000.0)  # mm → meters
 
                         # visualize
                         vis_img = camera.get()['color']

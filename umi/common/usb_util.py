@@ -59,6 +59,20 @@ def reset_all_elgato_devices():
             dev_usb_path = dev['path']
             reset_usb_device(dev_usb_path)
 
+def reset_all_avermedia_devices():
+    """
+    Find and reset all AVerMedia capture cards.
+    Required to workaround a firmware bug.
+    """
+    
+    # enumerate UBS device to find Elgato Capture Card
+    device_list = create_usb_list()
+    
+    for dev in device_list:
+        if 'AVerMedia' in dev['description']:
+            dev_usb_path = dev['path']
+            reset_usb_device(dev_usb_path)
+
 def get_sorted_v4l_paths(by_id=True):
     """
     If by_id, sort devices by device name + serial number (preserves device order)
