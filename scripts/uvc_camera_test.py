@@ -18,7 +18,7 @@ from umi.common.precise_sleep import precise_wait
 def main():
     cv2.setNumThreads(1)
 
-    dev_video_path = '/dev/video2'
+    dev_video_path = '/dev/video0'
 
     # enumerate UBS device to find AVerMedia Capture Card
     device_list = create_usb_list()
