@@ -441,8 +441,8 @@ def main(robot_hostname,
                                 # gripper.send_target(gripper_action[i] / 1000.0)  # mm → meters
 
                             # visualize
-                            vis_img = camera.get()['color']
-                            cv2.imshow('main camera', vis_img)
+                            # vis_img = camera.get()['color']
+                            # cv2.imshow('main camera', vis_img)
 
                             key_stroke = cv2.pollKey()
                             if key_stroke == ord('s'):
