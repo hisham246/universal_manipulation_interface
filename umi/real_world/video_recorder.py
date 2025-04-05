@@ -242,8 +242,12 @@ class VideoRecorder(mp.Process):
                 stream.width = w
                 stream.height = h
                 codec_context = stream.codec_context
+                # for k, v in self.kwargs.items():
+                #     setattr(codec_context, k, v)
+                valid_codec_attrs = dir(codec_context)
                 for k, v in self.kwargs.items():
-                    setattr(codec_context, k, v)
+                    if k in valid_codec_attrs:
+                        setattr(codec_context, k, v)
                 
                 # loop
                 while not self.stop_event.is_set():

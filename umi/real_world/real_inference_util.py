@@ -156,7 +156,11 @@ def get_real_umi_obs_dict(
             ], axis=-1))
             
             # get start pose
-            start_pose = episode_start_pose[robot_id]
+            # start_pose = episode_start_pose[robot_id]
+            if isinstance(episode_start_pose, list):
+                start_pose = episode_start_pose[robot_id]
+            else:
+                start_pose = episode_start_pose
             start_pose_mat = pose_to_mat(start_pose)
             rel_obs_pose_mat = convert_pose_mat_rep(
                 pose_mat,
