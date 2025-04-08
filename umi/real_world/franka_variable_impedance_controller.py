@@ -3,8 +3,6 @@ import time
 import enum
 import multiprocessing as mp
 from multiprocessing.managers import SharedMemoryManager
-import scipy.interpolate as si
-import scipy.spatial.transform as st
 import numpy as np
 
 from umi.shared_memory.shared_memory_queue import (
@@ -12,8 +10,6 @@ from umi.shared_memory.shared_memory_queue import (
 from umi.shared_memory.shared_memory_ring_buffer import SharedMemoryRingBuffer
 from umi.common.pose_trajectory_interpolator import PoseTrajectoryInterpolator
 from diffusion_policy.common.precise_sleep import precise_wait
-import torch
-from umi.common.pose_util import pose_to_mat, mat_to_pose
 import zerorpc
 
 class Command(enum.Enum):
@@ -57,6 +53,12 @@ class FrankaInterface:
 
     def terminate_current_policy(self):
         self.server.terminate_current_policy()
+
+    def update_impedance_gains(self, Kx: np.ndarray, Kxd: np.ndarray):
+        self.server.update_current_policy({
+            'Kx': Kx.tolist(),
+            'Kxd': Kxd.tolist()
+        })
 
     def close(self):
         self.server.close()
@@ -107,6 +109,9 @@ class FrankaInterpolationController(mp.Process):
         self.soft_real_time = soft_real_time
         self.receive_latency = receive_latency
         self.verbose = verbose
+        # Current impedance gains
+        self.curr_Kx = self.Kx.copy()
+        self.curr_Kxd = self.Kxd.copy()
 
         if get_max_k is None:
             get_max_k = int(frequency * 5)
@@ -359,9 +364,9 @@ class FrankaInterpolationController(mp.Process):
                         )
                         last_waypoint_time = target_time
                     elif cmd == Command.SET_IMPEDANCE.value:
-                        new_Kx = command['Kx']
-                        new_Kxd = command['Kxd']
-                        robot.start_cartesian_impedance(Kx=new_Kx, Kxd=new_Kxd)
+                        self.curr_Kx = command['Kx']
+                        self.curr_Kxd = command['Kxd']
+                        robot.update_impedance_gains(Kx=self.curr_Kx, Kxd=self.curr_Kxd)
                         if self.verbose:
                             print("[FrankaVariableImpedanceController] Updated impedance gains.")
                     else:
@@ -377,8 +382,8 @@ class FrankaInterpolationController(mp.Process):
                     self.ready_event.set()
                 iter_idx += 1
 
-                if self.verbose:
-                    print(f"[FrankaVariableImpedanceController] Actual frequency {1/(time.monotonic() - t_now)}")
+                # if self.verbose:
+                #     print(f"[FrankaVariableImpedanceController] Actual frequency {1/(time.monotonic() - t_now)}")
 
         finally:
             # manditory cleanup

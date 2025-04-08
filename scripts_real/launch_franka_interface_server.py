@@ -42,6 +42,13 @@ class FrankaInterface:
             orientation=torch.Tensor(st.Rotation.from_rotvec(pose[3:]).as_quat())
         )
 
+    def update_current_policy(self, param_dict):
+        param_dict_torch = {
+            key: torch.Tensor(val)
+            for key, val in param_dict.items()
+        }
+        return self.robot.update_current_policy(param_dict_torch)
+
     def terminate_current_policy(self):
         self.robot.terminate_current_policy()
 

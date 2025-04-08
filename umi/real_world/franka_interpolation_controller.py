@@ -21,28 +21,11 @@ class Command(enum.Enum):
     SERVOL = 1
     SCHEDULE_WAYPOINT = 2
 
-# tx_flangerot90_tip = np.identity(4)
-# tx_flangerot90_tip[:3, 3] = np.array([-0.0336, 0, 0.247])
-
-# tx_flangerot45_flangerot90 = np.identity(4)
-# tx_flangerot45_flangerot90[:3,:3] = st.Rotation.from_euler('x', [np.pi/2]).as_matrix()
-
-# tx_flange_flangerot45 = np.identity(4)
-# tx_flange_flangerot45[:3,:3] = st.Rotation.from_euler('z', [np.pi/4]).as_matrix()
-
-# tx_flange_tip = tx_flange_flangerot45 @ tx_flangerot45_flangerot90 @tx_flangerot90_tip
-# tx_tip_flange = np.linalg.inv(tx_flange_tip)
-
 class FrankaInterface:
     # IP Address of NUC Labwork 4
     def __init__(self, ip='129.97.71.27', port=4242):
         self.server = zerorpc.Client(heartbeat=20)
         self.server.connect(f"tcp://{ip}:{port}")
-
-    # def get_ee_pose(self):
-    #     flange_pose = np.array(self.server.get_ee_pose())
-    #     tip_pose = mat_to_pose(pose_to_mat(flange_pose) @ tx_flange_tip)
-    #     return tip_pose
 
     def get_ee_pose(self):
         data = self.server.get_ee_pose()
