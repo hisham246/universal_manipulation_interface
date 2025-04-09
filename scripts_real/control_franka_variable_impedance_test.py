@@ -26,9 +26,12 @@ def main(robot_hostname, frequency, gripper_speed, gripper_force, gripper_port, 
     # Define impedance profiles (stiffness/damping)
     impedance_profiles = [
         (np.array([100, 100, 100, 10, 10, 10]), np.array([10, 10, 10, 1, 1, 1])),
-        (np.array([500, 500, 500, 20, 20, 20]), np.array([20, 20, 20, 2, 2, 2])),
-        (np.array([1000, 1000, 1000, 30, 30, 30]), np.array([30, 30, 30, 3, 3, 3]))
-    ]
+        (np.array([150, 150, 150, 20, 20, 20]), np.array([20, 20, 20, 2, 2, 2])),
+        (np.array([200, 200, 200, 30, 30, 30]), np.array([30, 30, 30, 3, 3, 3])),
+        (np.array([300, 300, 300, 30, 30, 30]), np.array([30, 30, 30, 3, 3, 3])),
+        (np.array([400, 400, 400, 30, 30, 30]), np.array([30, 30, 30, 3, 3, 3])),
+        (np.array([500, 500, 500, 30, 30, 30]), np.array([30, 30, 30, 3, 3, 3]))]
+
     imp_idx = 0
     last_impedance_update = time.monotonic()
     impedance_update_period = 5.0  # seconds
