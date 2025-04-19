@@ -1,6 +1,6 @@
 """
 Usage:
-(umi): python scripts_real/eval_real_umi.py -i data/outputs/2023.10.26/02.25.30_train_diffusion_unet_timm_umi/checkpoints/latest.ckpt -o data_local/cup_test_data
+(umi): python exec_policy.py -o output
 
 ================ Human in control ==============
 Robot movement:
@@ -101,16 +101,12 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed, gripper_forc
 
     max_gripper_width = 0.1
 
-    # load checkpoint
-    # ckpt_path = input
-    # if not ckpt_path.endswith('.ckpt'):
-    #     ckpt_path = os.path.join(ckpt_path, 'checkpoints', 'latest.ckpt')
-    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_test.ckpt'
+    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_test.ckpt'
+    # ckpt_path = '/home/hisham246/uwaterloo/test_policy.ckpt'
+    ckpt_path = '/home/hisham246/uwaterloo/pickplace.ckpt'
+
     payload = torch.load(open(ckpt_path, 'rb'), map_location='cpu', pickle_module=dill)
     cfg = payload['cfg']
-    # print("model_name:", cfg.policy.obs_encoder.model_name)
-    # print("dataset_path:", cfg.task.dataset.dataset_path)
-    # print("Keys of obs:", cfg.task.shape_meta.obs.keys())
 
     # setup experiment
     dt = 1/frequency
@@ -204,8 +200,6 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed, gripper_forc
             policy.num_inference_steps = 16 # DDIM inference iterations
             obs_pose_rep = cfg.task.pose_repr.obs_pose_repr
             action_pose_repr = cfg.task.pose_repr.action_pose_repr
-            # print('obs_pose_rep', obs_pose_rep)
-            # print('action_pose_repr', action_pose_repr)
 
 
             device = torch.device('cuda')
@@ -409,8 +403,6 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed, gripper_forc
                             raw_action = result['action_pred'][0].detach().to('cpu').numpy()
                             action = get_real_umi_action(raw_action, obs, action_pose_repr)
                             print('Inference latency:', time.time() - s)
-                            # print("Obs:", obs_dict)
-                            # print("Action:", action)
                         
                         # convert policy action to env actions
                         this_target_poses = action
@@ -437,12 +429,12 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed, gripper_forc
 
 
                         # execute actions
-                        # env.exec_actions(
-                        #     actions=this_target_poses,
-                        #     timestamps=action_timestamps,
-                        #     compensate_latency=True
-                        # )
-                        # print(f"Submitted {len(this_target_poses)} steps of actions.")
+                        env.exec_actions(
+                            actions=this_target_poses,
+                            timestamps=action_timestamps,
+                            compensate_latency=True
+                        )
+                        print(f"Submitted {len(this_target_poses)} steps of actions.")
 
                         # visualize
                         episode_id = env.replay_buffer.n_episodes
@@ -494,8 +486,6 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed, gripper_forc
                     env.end_episode()
                 
                 print("Stopped.")
-
-
 
 # %%
 if __name__ == '__main__':

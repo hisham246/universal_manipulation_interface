@@ -99,7 +99,8 @@ def main(robot_hostname,
     cv2.setNumThreads(1)
 
     # load checkpoint
-    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_test.ckpt'
+    ckpt_path = '/home/hisham246/uwaterloo/pickplace.ckpt'
+    
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
     cfg = payload['cfg']
     cls = hydra.utils.get_class(cfg._target_)
@@ -432,13 +433,13 @@ def main(robot_hostname,
 
                             # execute actions
                             robot_action = action[:,:6]
-                            gripper_action = action[:,-1] * 1000 - 4 # m to mm
+                            gripper_action = action[:,-1]
 
                             print('Action:', robot_action, gripper_action)
 
-                            # for i in range(len(action_timestamps)):
-                            #     controller.schedule_waypoint(robot_action[i], action_timestamps[i])
-                                # gripper.send_target(gripper_action[i] / 1000.0)  # mm → meters
+                            for i in range(len(action_timestamps)):
+                                controller.schedule_waypoint(robot_action[i], action_timestamps[i])
+                                gripper.send_target(gripper_action[i])
 
                             # visualize
                             # vis_img = camera.get()['color']
