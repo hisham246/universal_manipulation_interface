@@ -7,7 +7,7 @@ from diffusion_policy.codecs.imagecodecs_numcodecs import register_codecs, JpegX
 register_codecs()
 
 # Open the Zarr dataset
-zarr_path = "/home/hisham246/uwaterloo/umi/pickplace/pickplace.zarr.zip"
+zarr_path = "/home/hisham246/uwaterloo/umi/pickplace_trial_2/pickplace_trial_2.zarr.zip"
 root = zarr.open(zarr_path)
 
 # Extract episode boundaries
@@ -36,5 +36,5 @@ for i, (start, end) in enumerate(zip(episode_starts, episode_ends)):
 
     # Save to CSV
     csv_filename = f"episode_{i+1}.csv"
-    df.to_csv("/home/hisham246/uwaterloo/umi/pickplace/csv/" + csv_filename, index=False)
+    df.to_csv("/home/hisham246/uwaterloo/umi/pickplace_trial_2/csv/" + csv_filename, index=False)
     print(f"Saved {csv_filename}")

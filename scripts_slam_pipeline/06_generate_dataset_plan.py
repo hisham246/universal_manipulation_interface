@@ -36,6 +36,8 @@ from umi.common.interpolation_util import (
     PoseInterpolator
 )
 
+from collections import Counter
+
 
 # %%
 def get_bool_segments(bool_seq):
@@ -239,18 +241,37 @@ def main(input, output, tcp_offset, tx_slam_tag,
     
     demo_data_list = list()
     on_videos = set()
-    on_cameras = set()
+    # on_cameras = set()
+    on_cameras = Counter()
     used_videos = set()
     t_demo_start = None
     for i, event in enumerate(events):
         # update state based on event
+        # if event['is_start']:
+        #     on_videos.add(event['vid_idx'])
+        #     on_cameras.add(event['camera_serial'])
+        # else:
+        #     on_videos.remove(event['vid_idx'])
+        #     on_cameras.remove(event['camera_serial'])
         if event['is_start']:
             on_videos.add(event['vid_idx'])
-            on_cameras.add(event['camera_serial'])
+            on_cameras[event['camera_serial']] += 1
         else:
             on_videos.remove(event['vid_idx'])
-            on_cameras.remove(event['camera_serial'])
-        assert len(on_videos) == len(on_cameras)
+            on_cameras[event['camera_serial']] -= 1
+            if on_cameras[event['camera_serial']] == 0:
+                del on_cameras[event['camera_serial']]
+
+        # if len(on_videos) != len(on_cameras):
+        #     print("Video indices on:", on_videos)
+        #     print("Camera serials on:", on_cameras)
+        #     for vid_idx in on_videos:
+        #         print(f"vid_idx {vid_idx}: {video_meta_df.loc[vid_idx]['camera_serial']}")
+        #     raise RuntimeError("Mismatch between active videos and cameras")
+        
+        # print("videos:", len(on_videos))
+        # print("cameras:", len(on_cameras))
+        # assert len(on_videos) == len(on_cameras)
         
         if len(on_cameras) == n_cameras:
             # start demo episode where all cameras are recording

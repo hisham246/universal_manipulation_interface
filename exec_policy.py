@@ -103,7 +103,7 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed, gripper_forc
 
     # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_test.ckpt'
     # ckpt_path = '/home/hisham246/uwaterloo/test_policy.ckpt'
-    ckpt_path = '/home/hisham246/uwaterloo/pickplace.ckpt'
+    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/pickplace_trial_2.ckpt'
 
     payload = torch.load(open(ckpt_path, 'rb'), map_location='cpu', pickle_module=dill)
     cfg = payload['cfg']
