@@ -33,6 +33,7 @@ import pathlib
 import time
 from multiprocessing.managers import SharedMemoryManager
 
+from moviepy.editor import VideoFileClip
 import av
 import click
 import cv2
@@ -72,11 +73,11 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 @click.option('--gripper_ip', default='129.97.71.27')
 @click.option('--gripper_port', type=int, default=4242)
 @click.option('--gripper_speed', type=float, default=0.05)
-@click.option('--gripper_force', type=float, default=20.0)
+# @click.option('--gripper_force', type=float, default=20.0)
 @click.option('--match_dataset', '-m', default=None, help='Dataset used to overlay and adjust initial condition')
 @click.option('--match_episode', '-me', default=None, type=int, help='Match specific episode from the match dataset')
 @click.option('--match_camera', '-mc', default=0, type=int)
-@click.option('--camera_reorder', '-cr', default='021')
+# @click.option('--camera_reorder', '-cr', default='021')
 @click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
 # @click.option('--init_joints', '-j', is_flag=True, default=False, help="Whether to initialize robot joint configuration in the beginning.")
 @click.option('--steps_per_inference', '-si', default=6, type=int, help="Action horizon for inference.")
@@ -90,9 +91,8 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 @click.option('--mirror_crop', is_flag=True, default=False)
 @click.option('--mirror_swap', is_flag=True, default=False)
 
-def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed, gripper_force,
+def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
     match_dataset, match_episode, match_camera,
-    camera_reorder,
     vis_camera_idx, 
     steps_per_inference, max_duration,
     frequency, command_latency, 
@@ -103,7 +103,7 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed, gripper_forc
 
     # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_test.ckpt'
     # ckpt_path = '/home/hisham246/uwaterloo/test_policy.ckpt'
-    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/pickplace_trial_2.ckpt'
+    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/pickplace_trial_3.ckpt'
 
     payload = torch.load(open(ckpt_path, 'rb'), map_location='cpu', pickle_module=dill)
     cfg = payload['cfg']
@@ -153,7 +153,7 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed, gripper_forc
                 fisheye_converter=fisheye_converter,
                 mirror_crop=mirror_crop,
                 mirror_swap=mirror_swap,
-                dev_video_path='/dev/video0',
+                # dev_video_path='/dev/video13',
                 # action
                 max_pos_speed=2.0,
                 max_rot_speed=6.0,
@@ -181,8 +181,6 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed, gripper_forc
                             for frame in container.decode(stream):
                                 img = frame.to_ndarray(format='rgb24')
                                 break
-                        # img = VideoFileClip(str(match_video_path)).get_frame(0)
-
                         episode_first_frame_map[episode_idx] = img
             print(f"Loaded initial frame for {len(episode_first_frame_map)} episodes")
 
@@ -206,11 +204,12 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed, gripper_forc
             policy.eval().to(device)
 
             print("Warming up policy inference")
-            obs = env.get_obs()
+            obs = env.get_obs()            
             episode_start_pose = np.concatenate([
                     obs[f'robot0_eef_pos'],
                     obs[f'robot0_eef_rot_axis_angle']
                 ], axis=-1)[-1]
+            # print("start pose", episode_start_pose)
             with torch.no_grad():
                 policy.reset()
                 obs_dict_np = get_real_umi_obs_dict(
@@ -244,52 +243,53 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed, gripper_forc
 
                     # pump obs
                     obs = env.get_obs()
-
-                    # visualize
                     episode_id = env.replay_buffer.n_episodes
-                    vis_img = obs[f'camera{match_camera}_rgb'][-1]
                     match_episode_id = episode_id
-                    if match_episode is not None:
-                        match_episode_id = match_episode
-                    if match_episode_id in episode_first_frame_map:
-                        match_img = episode_first_frame_map[match_episode_id]
-                        ih, iw, _ = match_img.shape
-                        oh, ow, _ = vis_img.shape
-                        tf = get_image_transform(
-                            input_res=(iw, ih), 
-                            output_res=(ow, oh), 
-                            bgr_to_rgb=False)
-                        match_img = tf(match_img).astype(np.float32) / 255
-                        vis_img = (vis_img + match_img) / 2
-                    obs_img = obs['camera0_rgb'][-1]
-                    if mirror_crop:
-                        crop_img = obs['camera0_rgb_mirror_crop'][-1]
-                        vis_img = np.concatenate([obs_img, crop_img, vis_img], axis=1)
-                    else:
-                        vis_img = np.concatenate([obs_img, vis_img], axis=1)
+
+                    # # visualize
+                    # vis_img = obs[f'camera{match_camera}_rgb'][-1]
+                    # match_episode_id = episode_id
+                    # if match_episode is not None:
+                    #     match_episode_id = match_episode
+                    # if match_episode_id in episode_first_frame_map:
+                    #     match_img = episode_first_frame_map[match_episode_id]
+                    #     ih, iw, _ = match_img.shape
+                    #     oh, ow, _ = vis_img.shape
+                    #     tf = get_image_transform(
+                    #         input_res=(iw, ih), 
+                    #         output_res=(ow, oh), 
+                    #         bgr_to_rgb=False)
+                    #     match_img = tf(match_img).astype(np.float32) / 255
+                    #     vis_img = (vis_img + match_img) / 2
+                    # obs_img = obs['camera0_rgb'][-1]
+                    # if mirror_crop:
+                    #     crop_img = obs['camera0_rgb_mirror_crop'][-1]
+                    #     vis_img = np.concatenate([obs_img, crop_img, vis_img], axis=1)
+                    # else:
+                    #     vis_img = np.concatenate([obs_img, vis_img], axis=1)
                     
-                    text = f'Episode: {episode_id}'
-                    cv2.putText(
-                        vis_img,
-                        text,
-                        (10,20),
-                        fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                        fontScale=0.5,
-                        lineType=cv2.LINE_AA,
-                        thickness=3,
-                        color=(0,0,0)
-                    )
-                    cv2.putText(
-                        vis_img,
-                        text,
-                        (10,20),
-                        fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                        fontScale=0.5,
-                        thickness=1,
-                        color=(255,255,255)
-                    )
-                    cv2.imshow('default', vis_img[...,::-1])
-                    _ = cv2.pollKey()
+                    # text = f'Episode: {episode_id}'
+                    # cv2.putText(
+                    #     vis_img,
+                    #     text,
+                    #     (10,20),
+                    #     fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                    #     fontScale=0.5,
+                    #     lineType=cv2.LINE_AA,
+                    #     thickness=3,
+                    #     color=(0,0,0)
+                    # )
+                    # cv2.putText(
+                    #     vis_img,
+                    #     text,
+                    #     (10,20),
+                    #     fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                    #     fontScale=0.5,
+                    #     thickness=1,
+                    #     color=(255,255,255)
+                    # )
+                    # cv2.imshow('default', vis_img[...,::-1])
+                    # _ = cv2.pollKey()
                     press_events = key_counter.get_press_events()
                     start_policy = False
                     for key_stroke in press_events:
@@ -383,6 +383,7 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed, gripper_forc
 
                         # get obs
                         obs = env.get_obs()
+                        # print("Observations:", obs)
                         episode_start_pose = np.concatenate([
                             obs[f'robot0_eef_pos'],
                             obs[f'robot0_eef_rot_axis_angle']
@@ -421,7 +422,7 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed, gripper_forc
                             # schedule on next available step
                             next_step_idx = int(np.ceil((curr_time - eval_t_start) / dt))
                             action_timestamp = eval_t_start + (next_step_idx) * dt
-                            print('Over budget', action_timestamp - curr_time)
+                            # print('Over budget', action_timestamp - curr_time)
                             action_timestamps = np.array([action_timestamp])
                         else:
                             this_target_poses = this_target_poses[is_new]
@@ -433,7 +434,7 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed, gripper_forc
                             actions=this_target_poses,
                             timestamps=action_timestamps,
                             compensate_latency=True
-                        )
+                        )      
                         print(f"Submitted {len(this_target_poses)} steps of actions.")
 
                         # visualize

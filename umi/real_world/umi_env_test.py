@@ -7,7 +7,7 @@ import cv2
 from multiprocessing.managers import SharedMemoryManager
 from umi.real_world.franka_interpolation_controller import FrankaInterpolationController
 from umi.real_world.franka_hand_controller import FrankaHandController
-from umi.real_world.multi_uvc_camera import VideoRecorder
+from umi.real_world.multi_uvc_camera import MultiUvcCamera, VideoRecorder
 from umi.real_world.uvc_camera import UvcCamera
 from diffusion_policy.common.timestamp_accumulator import (
     TimestampActionAccumulator,
@@ -32,7 +32,7 @@ class UmiEnv:
             gripper_ip,
             gripper_port=4242,
             # env params
-            frequency=20,
+            frequency=10,
             # obs
             obs_image_resolution=(224,224),
             max_obs_buffer_size=60,
@@ -42,7 +42,7 @@ class UmiEnv:
             fisheye_converter=None,
             mirror_crop=False,
             mirror_swap=False,
-            dev_video_path='/dev/video0',
+            # dev_video_path='/dev/video0',
             # timing
             align_camera_idx=0,
             # this latency compensates receive_timestamp
@@ -89,7 +89,7 @@ class UmiEnv:
         if camera_reorder is not None:
             paths = [v4l_paths[i] for i in camera_reorder]
             v4l_paths = paths
-
+        
         # compute resolution for vis
         rw, rh, col, row = optimal_row_cols(
             n_cameras=len(v4l_paths),
@@ -189,15 +189,31 @@ class UmiEnv:
                 return data
             vis_transform.append(vis_tf)
 
-        camera = UvcCamera(shm_manager=shm_manager,
-                      dev_video_path=dev_video_path,
-                      resolution=resolution[0])
+        # camera = UvcCamera(shm_manager=shm_manager,
+        #               dev_video_path=dev_video_path,
+        #               resolution=resolution[0])
 
+        camera = MultiUvcCamera(
+            dev_video_paths=v4l_paths,
+            shm_manager=shm_manager,
+            resolution=resolution,
+            capture_fps=capture_fps,
+            # send every frame immediately after arrival
+            # ignores put_fps
+            put_downsample=False,
+            get_max_k=max_obs_buffer_size,
+            receive_latency=camera_obs_latency,
+            cap_buffer_size=cap_buffer_size,
+            transform=transform,
+            vis_transform=vis_transform,
+            video_recorder=video_recorder,
+            verbose=False
+        )
 
         robot = FrankaInterpolationController(
             shm_manager=shm_manager,
             robot_ip=robot_ip,
-            frequency=200,
+            frequency=1000,
             Kx_scale=1.0,
             Kxd_scale=np.array([2.0,1.5,2.0,1.0,1.0,1.0]),
             verbose=False,
@@ -273,7 +289,7 @@ class UmiEnv:
     def stop_wait(self):
         self.robot.stop_wait()
         self.gripper.stop_wait()
-        # self.camera.stop_wait()
+        self.camera.stop_wait()
 
     # ========= context manager ===========
     def __enter__(self):
@@ -300,6 +316,12 @@ class UmiEnv:
         k = math.ceil(
             self.camera_obs_horizon * self.camera_down_sample_steps \
             * (60 / self.frequency))
+        
+        # for i, cam in self.camera.cameras.items():
+        #     if cam.ring_buffer.count < k:
+        #         print(f"[Warning] Camera has only {cam.ring_buffer.count} frames, waiting for at least {k}")
+        #         time.sleep(0.5)
+        # print("K:", k)
         self.last_camera_data = self.camera.get(
             k=k, 
             out=self.last_camera_data)
@@ -310,11 +332,7 @@ class UmiEnv:
 
         # 30 hz, gripper_receive_timestamp
         last_gripper_data = self.gripper.get_all_state()
-
-        # print("Available camera data keys:", self.last_camera_data.keys())
-
-        # last_timestamp = self.last_camera_data[self.align_camera_idx]['timestamp'][-1]
-        last_timestamp = self.last_camera_data['timestamp'][-1]
+        last_timestamp = self.last_camera_data[0]['timestamp'][-1]
         dt = 1 / self.frequency
 
         # # align camera obs timestamps
@@ -338,15 +356,34 @@ class UmiEnv:
         camera_obs_timestamps = last_timestamp - (
             np.arange(self.camera_obs_horizon)[::-1] * self.camera_down_sample_steps * dt)
 
-        this_timestamps = self.last_camera_data['timestamp']
+        this_timestamps = self.last_camera_data[0]['timestamp']
         this_idxs = [np.argmin(np.abs(this_timestamps - t)) for t in camera_obs_timestamps]
 
         camera_obs = dict()
         if self.mirror_crop:
-            camera_obs['camera0_rgb'] = self.last_camera_data['color'][...,:3][this_idxs]
-            camera_obs['camera0_rgb_mirror_crop'] = self.last_camera_data['color'][...,3:][this_idxs]
+            camera_obs['camera0_rgb'] = self.last_camera_data[0]['color'][...,:3][this_idxs]
+            camera_obs['camera0_rgb_mirror_crop'] = self.last_camera_data[0]['color'][...,3:][this_idxs]
         else:
-            camera_obs['camera0_rgb'] = self.last_camera_data['color'][this_idxs]
+            camera_obs['camera0_rgb'] = self.last_camera_data[0]['color'][this_idxs]
+
+        # # align camera obs timestamps
+        # camera_obs_timestamps = last_timestamp - (
+        #     np.arange(self.camera_obs_horizon)[::-1] * self.camera_down_sample_steps * dt)
+        
+        # camera_obs = dict()
+        # this_timestamps = self.last_camera_data['timestamp']
+        # this_idxs = [np.argmin(np.abs(this_timestamps - t)) for t in camera_obs_timestamps]
+
+        # this_idxs = list()
+        # for t in camera_obs_timestamps:
+        #     nn_idx = np.argmin(np.abs(this_timestamps - t))
+        #     this_idxs.append(nn_idx)
+
+        # if self.mirror_crop:
+        #     camera_obs['camera0_rgb'] = self.last_camera_data['color'][...,:3][this_idxs]
+        #     camera_obs['camera0_rgb_mirror_crop'] = self.last_camera_data['color'][...,3:][this_idxs]
+        # else:
+        #     camera_obs['camera0_rgb'] = self.last_camera_data['color'][this_idxs]
 
         # align robot obs
         robot_obs_timestamps = last_timestamp - (

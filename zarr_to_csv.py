@@ -10,31 +10,33 @@ register_codecs()
 zarr_path = "/home/hisham246/uwaterloo/umi/pickplace_trial_2/pickplace_trial_2.zarr.zip"
 root = zarr.open(zarr_path)
 
-# Extract episode boundaries
-episode_ends = root['meta']['episode_ends'][:]
-episode_starts = np.concatenate(([0], episode_ends[:-1]))  # Start indices
+print(root.tree())
 
-# List of data arrays to extract
-data_keys = ["robot0_eef_pos", "robot0_eef_rot_axis_angle", "robot0_gripper_width"]
+# # Extract episode boundaries
+# episode_ends = root['meta']['episode_ends'][:]
+# episode_starts = np.concatenate(([0], episode_ends[:-1]))  # Start indices
 
-# Iterate over episodes and extract data
-for i, (start, end) in enumerate(zip(episode_starts, episode_ends)):
-    episode_data = {}
+# # List of data arrays to extract
+# data_keys = ["robot0_eef_pos", "robot0_eef_rot_axis_angle", "robot0_gripper_width"]
 
-    # Extract data for this episode
-    for key in data_keys:
-        episode_data[key] = root["data"][key][start:end]
+# # Iterate over episodes and extract data
+# for i, (start, end) in enumerate(zip(episode_starts, episode_ends)):
+#     episode_data = {}
 
-    # Convert to DataFrame
-    df = pd.DataFrame()
-    for key, values in episode_data.items():
-        if values.ndim == 2:
-            columns = [f"{key}_{j}" for j in range(values.shape[1])]
-        else:
-            columns = [key]
-        df = pd.concat([df, pd.DataFrame(values, columns=columns)], axis=1)
+#     # Extract data for this episode
+#     for key in data_keys:
+#         episode_data[key] = root["data"][key][start:end]
 
-    # Save to CSV
-    csv_filename = f"episode_{i+1}.csv"
-    df.to_csv("/home/hisham246/uwaterloo/umi/pickplace_trial_2/csv/" + csv_filename, index=False)
-    print(f"Saved {csv_filename}")
+#     # Convert to DataFrame
+#     df = pd.DataFrame()
+#     for key, values in episode_data.items():
+#         if values.ndim == 2:
+#             columns = [f"{key}_{j}" for j in range(values.shape[1])]
+#         else:
+#             columns = [key]
+#         df = pd.concat([df, pd.DataFrame(values, columns=columns)], axis=1)
+
+#     # Save to CSV
+#     csv_filename = f"episode_{i+1}.csv"
+#     df.to_csv("/home/hisham246/uwaterloo/umi/pickplace_trial_2/csv/" + csv_filename, index=False)
+#     print(f"Saved {csv_filename}")
