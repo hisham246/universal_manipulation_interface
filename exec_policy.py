@@ -99,7 +99,7 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
     no_mirror, sim_fov, camera_intrinsics, 
     mirror_crop, mirror_swap):
 
-    max_gripper_width = 0.04
+    max_gripper_width = 0.1
 
     # Diffusion Transformer
     ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_transformer_pickplace.ckpt'
