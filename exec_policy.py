@@ -72,7 +72,7 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 @click.option('--robot_ip', default='129.97.71.27')
 @click.option('--gripper_ip', default='129.97.71.27')
 @click.option('--gripper_port', type=int, default=4242)
-@click.option('--gripper_speed', type=float, default=0.05)
+@click.option('--gripper_speed', type=float, default=0.07)
 # @click.option('--gripper_force', type=float, default=20.0)
 @click.option('--match_dataset', '-m', default=None, help='Dataset used to overlay and adjust initial condition')
 @click.option('--match_episode', '-me', default=None, type=int, help='Match specific episode from the match dataset')
@@ -81,7 +81,7 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 @click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
 # @click.option('--init_joints', '-j', is_flag=True, default=False, help="Whether to initialize robot joint configuration in the beginning.")
 @click.option('--steps_per_inference', '-si', default=6, type=int, help="Action horizon for inference.")
-@click.option('--max_duration', '-md', default=60, help='Max duration for each epoch in seconds.')
+@click.option('--max_duration', '-md', default=120, help='Max duration for each epoch in seconds.')
 @click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
 @click.option('--command_latency', '-cl', default=0.01, type=float, help="Latency between receiving SapceMouse command to executing on Robot in Sec.")
 @click.option('-nm', '--no_mirror', is_flag=True, default=False)
@@ -99,11 +99,13 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
     no_mirror, sim_fov, camera_intrinsics, 
     mirror_crop, mirror_swap):
 
-    max_gripper_width = 0.1
+    max_gripper_width = 0.04
 
-    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_test.ckpt'
-    # ckpt_path = '/home/hisham246/uwaterloo/test_policy.ckpt'
-    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/pickplace_trial_3.ckpt'
+    # Diffusion Transformer
+    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_transformer_pickplace.ckpt'
+
+    # Diffusion UNet
+    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_pickplace.ckpt'
 
     payload = torch.load(open(ckpt_path, 'rb'), map_location='cpu', pickle_module=dill)
     cfg = payload['cfg']
@@ -140,10 +142,10 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                 # init_joints=init_joints,
                 # enable_multi_cam_vis=True,
                 # latency
-                camera_obs_latency=0.17,
+                camera_obs_latency=0.145,
                 robot_obs_latency=0.0001,
                 gripper_obs_latency=0.01,
-                robot_action_latency=0.18,
+                robot_action_latency=0.1,
                 gripper_action_latency=0.1,
                 # obs
                 camera_obs_horizon=cfg.task.shape_meta.obs.camera0_rgb.horizon,

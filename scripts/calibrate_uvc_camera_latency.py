@@ -16,7 +16,7 @@ from collections import deque
 from tqdm import tqdm
 from multiprocessing.managers import SharedMemoryManager
 from umi.real_world.uvc_camera import UvcCamera
-from umi.common.usb_util import reset_all_elgato_devices, get_sorted_v4l_paths
+from umi.common.usb_util import reset_all_avermedia_devices, reset_all_elgato_devices, get_sorted_v4l_paths
 from matplotlib import pyplot as plt
 
 # %%
@@ -29,7 +29,9 @@ def main(camera_idx, qr_size, fps, n_frames):
     # Find and reset all Elgato capture cards.
     # Required to workaround a firmware bug.
     reset_all_elgato_devices()
+    # reset_all_avermedia_devices()
     v4l_paths = get_sorted_v4l_paths()
+    print(v4l_paths)
     v4l_path = v4l_paths[camera_idx]
     get_max_k = n_frames
     detector = cv2.QRCodeDetector()

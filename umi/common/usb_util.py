@@ -65,7 +65,7 @@ def reset_all_avermedia_devices():
     Required to workaround a firmware bug.
     """
     
-    # enumerate UBS device to find Elgato Capture Card
+    # enumerate UBS device to find Avermedia Capture Card
     device_list = create_usb_list()
     
     for dev in device_list:

@@ -223,7 +223,7 @@ class UmiEnv:
         gripper = FrankaHandController(
             host=gripper_ip,
             port=gripper_port,
-            speed=0.05,
+            speed=0.07,
             force=20.0,
             update_rate=frequency
         )
