@@ -80,7 +80,7 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 # @click.option('--camera_reorder', '-cr', default='021')
 @click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
 # @click.option('--init_joints', '-j', is_flag=True, default=False, help="Whether to initialize robot joint configuration in the beginning.")
-@click.option('--steps_per_inference', '-si', default=6, type=int, help="Action horizon for inference.")
+@click.option('--steps_per_inference', '-si', default=8, type=int, help="Action horizon for inference.")
 @click.option('--max_duration', '-md', default=120, help='Max duration for each epoch in seconds.')
 @click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
 @click.option('--command_latency', '-cl', default=0.01, type=float, help="Latency between receiving SapceMouse command to executing on Robot in Sec.")
@@ -102,10 +102,10 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
     max_gripper_width = 0.1
 
     # Diffusion Transformer
-    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_transformer_pickplace.ckpt'
+    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_transformer_pickplace.ckpt'
 
     # Diffusion UNet
-    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_pickplace.ckpt'
+    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_pickplace.ckpt'
 
     payload = torch.load(open(ckpt_path, 'rb'), map_location='cpu', pickle_module=dill)
     cfg = payload['cfg']
@@ -142,11 +142,11 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                 # init_joints=init_joints,
                 # enable_multi_cam_vis=True,
                 # latency
-                camera_obs_latency=0.145,
+                camera_obs_latency=0.0145,
                 robot_obs_latency=0.0001,
                 gripper_obs_latency=0.01,
-                robot_action_latency=0.1,
-                gripper_action_latency=0.1,
+                robot_action_latency=0.02,
+                gripper_action_latency=0.01,
                 # obs
                 camera_obs_horizon=cfg.task.shape_meta.obs.camera0_rgb.horizon,
                 robot_obs_horizon=cfg.task.shape_meta.obs.robot0_eef_pos.horizon,
@@ -157,8 +157,8 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                 mirror_swap=mirror_swap,
                 # dev_video_path='/dev/video13',
                 # action
-                max_pos_speed=2.0,
-                max_rot_speed=6.0,
+                max_pos_speed=0.5,
+                max_rot_speed=1.5,
                 # robot_type=robot_type,
                 shm_manager=shm_manager) as env:
             cv2.setNumThreads(2)

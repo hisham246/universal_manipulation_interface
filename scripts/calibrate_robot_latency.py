@@ -22,8 +22,8 @@ from matplotlib import pyplot as plt
 
 # %%
 @click.command()
-@click.option('-rh', '--robot_hostname', default='172.16.0.3')
-@click.option('-f', '--frequency', type=float, default=30)
+@click.option('-rh', '--robot_hostname', default='129.97.71.27')
+@click.option('-f', '--frequency', type=float, default=10)
 def main(robot_hostname, frequency):
     max_pos_speed = 0.5
     max_rot_speed = 1.2
@@ -48,7 +48,7 @@ def main(robot_hostname, frequency):
         with FrankaInterpolationController(
             shm_manager=shm_manager,
             robot_ip=robot_hostname,
-            frequency=200,
+            frequency=1000,
             Kx_scale=np.array([0.8,0.8,1.2,3.0,3.0,3.0]),
             Kxd_scale=np.array([2.0,2.0,2.0,2.0,2.0,2.0]),
             verbose=False

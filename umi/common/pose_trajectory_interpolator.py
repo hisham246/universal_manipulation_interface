@@ -38,9 +38,15 @@ class PoseTrajectoryInterpolator:
 
             pos = poses[:,:3]
             rot = st.Rotation.from_rotvec(poses[:,3:])
+            
+            # # Linear position interpolation
+            # self.pos_interp = si.interp1d(times, pos, 
+            #     axis=0, assume_sorted=True)
 
-            self.pos_interp = si.interp1d(times, pos, 
-                axis=0, assume_sorted=True)
+            # Cubic spline position interpolation
+            self.pos_interp = si.CubicSpline(times, pos, axis=0)
+
+            # SLERP rotation Interpolation
             self.rot_interp = st.Slerp(times, rot)
     
     @property
@@ -57,7 +63,11 @@ class PoseTrajectoryInterpolator:
         else:
             n = len(self.times)
             poses = np.zeros((n, 6))
-            poses[:,:3] = self.pos_interp.y
+            # Linear interpolation
+            # poses[:,:3] = self.pos_interp.y
+            # Cubic spline interpolation
+            poses[:,:3] = self.pos_interp(self.times)
+            
             poses[:,3:] = self.rot_interp(self.times).as_rotvec()
             return poses
 

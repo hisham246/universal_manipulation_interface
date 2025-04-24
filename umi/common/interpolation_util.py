@@ -15,7 +15,11 @@ class PoseInterpolator:
     def __init__(self, t, x):
         pos = x[:,:3]
         rot = st.Rotation.from_rotvec(x[:,3:])
+        # Linear interpolation
         self.pos_interp = get_interp1d(t, pos)
+
+        # Cubic spline interpolation
+        self.pos_interp = si.CubicSpline(t, pos, axis=0, extrapolate=True)
         self.rot_interp = st.Slerp(t, rot)
     
     @property
