@@ -142,11 +142,11 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                 # init_joints=init_joints,
                 # enable_multi_cam_vis=True,
                 # latency
-                camera_obs_latency=0.0145,
+                camera_obs_latency=0.145,
                 robot_obs_latency=0.0001,
                 gripper_obs_latency=0.01,
-                robot_action_latency=0.02,
-                gripper_action_latency=0.01,
+                robot_action_latency=0.2,
+                gripper_action_latency=0.1,
                 # obs
                 camera_obs_horizon=cfg.task.shape_meta.obs.camera0_rgb.horizon,
                 robot_obs_horizon=cfg.task.shape_meta.obs.robot0_eef_pos.horizon,
@@ -157,8 +157,8 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                 mirror_swap=mirror_swap,
                 # dev_video_path='/dev/video13',
                 # action
-                max_pos_speed=0.5,
-                max_rot_speed=1.5,
+                max_pos_speed=0.3,
+                max_rot_speed=1.0,
                 # robot_type=robot_type,
                 shm_manager=shm_manager) as env:
             cv2.setNumThreads(2)
