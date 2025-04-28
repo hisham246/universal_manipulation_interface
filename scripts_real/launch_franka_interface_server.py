@@ -12,7 +12,7 @@ class FrankaInterface:
     # Robot methods
     def get_robot_state(self):
         data = self.robot.get_robot_state()
-        return data.numpy().tolist()
+        return data
     
     def get_ee_pose(self):
         data = self.robot.get_ee_pose()
