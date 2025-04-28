@@ -2,7 +2,6 @@ import numpy as np
 import scipy.interpolate as si
 import scipy.spatial.transform as st
 
-
 def get_interp1d(t, x):
     gripper_interp = si.interp1d(
         t, x, 
@@ -10,16 +9,16 @@ def get_interp1d(t, x):
         fill_value=(x[0], x[-1]))
     return gripper_interp
 
-
 class PoseInterpolator:
     def __init__(self, t, x):
         pos = x[:,:3]
         rot = st.Rotation.from_rotvec(x[:,3:])
+        
         # Linear interpolation
-        # self.pos_interp = get_interp1d(t, pos)
+        self.pos_interp = get_interp1d(t, pos)
 
         # Cubic spline interpolation
-        self.pos_interp = si.CubicSpline(t, pos, axis=0, bc_type='natural')
+        # self.pos_interp = si.CubicSpline(t, pos, axis=0, bc_type='natural')
         # self.pos_interp = si.CubicSpline(t, pos, axis=0, bc_type='not-a-knot')
 
         self.rot_interp = st.Slerp(t, rot)

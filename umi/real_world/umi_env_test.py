@@ -559,6 +559,14 @@ class UmiEnv:
                 episode['robot0_joint_pos'] = joint_pos_interpolator(timestamps)
                 episode['robot0_joint_vel'] = joint_vel_interpolator(timestamps)
 
+                # Store raw observations (no interpolation)
+                episode['robot0_eef_pos_raw_timestamps'] = np.array(self.obs_accumulator.timestamps['robot0_eef_pose'])
+                episode['robot0_eef_pos_raw'] = np.array(self.obs_accumulator.data['robot0_eef_pose'])
+                episode['robot0_joint_pos_raw_timestamps'] = np.array(self.obs_accumulator.timestamps['robot0_joint_pos'])
+                episode['robot0_joint_pos_raw'] = np.array(self.obs_accumulator.data['robot0_joint_pos'])
+                episode['robot0_joint_vel_raw_timestamps'] = np.array(self.obs_accumulator.timestamps['robot0_joint_vel'])
+                episode['robot0_joint_vel_raw'] = np.array(self.obs_accumulator.data['robot0_joint_vel'])
+
                 # gripper_interpolator = get_interp1d(
                 #     t=np.array(self.obs_accumulator.timestamps['robot0_gripper_width']),
                 #     x=np.array(self.obs_accumulator.data['robot0_gripper_width'])

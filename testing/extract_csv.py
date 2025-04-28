@@ -1,21 +1,20 @@
 import zarr
 import pandas as pd
 import numpy as np
+import sys
+sys.path.append('/home/hisham246/uwaterloo/universal_manipulation_interface')
 from diffusion_policy.codecs.imagecodecs_numcodecs import register_codecs, JpegXl
 
 # Register required codecs
 register_codecs()
 
 # Open the Zarr dataset
-zarr_path = "/home/hisham246/uwaterloo/pickplace/replay_buffer.zarr"
+zarr_path = "/home/hisham246/uwaterloo/pickplace_2/replay_buffer.zarr"
 root = zarr.open(zarr_path)
-
-# print(root.tree())
 
 # Extract episode boundaries
 episode_ends = root['meta']['episode_ends'][:]
-episode_starts = np.concatenate(([0], episode_ends[:-1]))  # Start indices
-
+episode_starts = np.concatenate(([0], episode_ends[:-1]))
 
 # List of data arrays to extract
 data_keys = ["timestamp", "robot0_eef_pos", "robot0_eef_rot_axis_angle", "robot0_joint_pos", "robot0_joint_vel"]
@@ -28,7 +27,7 @@ for i, (start, end) in enumerate(zip(episode_starts, episode_ends)):
     for key in data_keys:
         episode_data[key] = root["data"][key][start:end]
 
-    # Convert to DataFrame
+    # Convert to Dataframe
     df = pd.DataFrame()
     for key, values in episode_data.items():
         if values.ndim == 2:
@@ -39,5 +38,5 @@ for i, (start, end) in enumerate(zip(episode_starts, episode_ends)):
 
     # Save to CSV
     csv_filename = f"episode_{i+1}.csv"
-    df.to_csv("/home/hisham246/uwaterloo/pickplace/csv/" + csv_filename, index=False)
+    df.to_csv("/home/hisham246/uwaterloo/pickplace_2/csv/" + csv_filename, index=False)
     print(f"Saved {csv_filename}")
