@@ -11,7 +11,7 @@ from umi.real_world.franka_hand_controller import FrankaHandController
 
 @click.command()
 @click.option('-rh', '--robot_hostname', default='129.97.71.27')
-@click.option('-f', '--frequency', type=float, default=30)
+@click.option('-f', '--frequency', type=float, default=10)
 @click.option('-gs', '--gripper_speed', type=float, default=0.05)
 @click.option('-gf', '--gripper_force', type=float, default=20.0)
 @click.option('-gp', '--gripper_port', type=int, default=4242)

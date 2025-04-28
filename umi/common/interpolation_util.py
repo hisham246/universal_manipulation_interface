@@ -19,8 +19,8 @@ class PoseInterpolator:
         # self.pos_interp = get_interp1d(t, pos)
 
         # Cubic spline interpolation
-        # self.pos_interp = si.CubicSpline(t, pos, axis=0, bc_type='natural')
-        self.pos_interp = si.CubicSpline(t, pos, axis=0, bc_type='not-a-knot')
+        self.pos_interp = si.CubicSpline(t, pos, axis=0, bc_type='natural')
+        # self.pos_interp = si.CubicSpline(t, pos, axis=0, bc_type='not-a-knot')
 
         self.rot_interp = st.Slerp(t, rot)
     

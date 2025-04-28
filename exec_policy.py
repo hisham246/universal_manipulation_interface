@@ -72,7 +72,7 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 @click.option('--robot_ip', default='129.97.71.27')
 @click.option('--gripper_ip', default='129.97.71.27')
 @click.option('--gripper_port', type=int, default=4242)
-@click.option('--gripper_speed', type=float, default=0.07)
+@click.option('--gripper_speed', type=float, default=0.05)
 # @click.option('--gripper_force', type=float, default=20.0)
 @click.option('--match_dataset', '-m', default=None, help='Dataset used to overlay and adjust initial condition')
 @click.option('--match_episode', '-me', default=None, type=int, help='Match specific episode from the match dataset')
@@ -80,8 +80,8 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 # @click.option('--camera_reorder', '-cr', default='021')
 @click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
 # @click.option('--init_joints', '-j', is_flag=True, default=False, help="Whether to initialize robot joint configuration in the beginning.")
-@click.option('--steps_per_inference', '-si', default=8, type=int, help="Action horizon for inference.")
-@click.option('--max_duration', '-md', default=120, help='Max duration for each epoch in seconds.')
+@click.option('--steps_per_inference', '-si', default= 6, type=int, help="Action horizon for inference.")
+@click.option('--max_duration', '-md', default=60, help='Max duration for each epoch in seconds.')
 @click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
 @click.option('--command_latency', '-cl', default=0.01, type=float, help="Latency between receiving SapceMouse command to executing on Robot in Sec.")
 @click.option('-nm', '--no_mirror', is_flag=True, default=False)
@@ -142,11 +142,16 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                 # init_joints=init_joints,
                 # enable_multi_cam_vis=True,
                 # latency
-                camera_obs_latency=0.145,
-                robot_obs_latency=0.0001,
-                gripper_obs_latency=0.01,
-                robot_action_latency=0.2,
-                gripper_action_latency=0.1,
+                # camera_obs_latency=0.145,
+                # robot_obs_latency=0.0001,
+                # gripper_obs_latency=0.01,
+                # robot_action_latency=0.2,
+                # gripper_action_latency=0.1,
+                camera_obs_latency=0.0,
+                robot_obs_latency=0.0,
+                gripper_obs_latency=0.0,
+                robot_action_latency=0.0,
+                gripper_action_latency=0.0,
                 # obs
                 camera_obs_horizon=cfg.task.shape_meta.obs.camera0_rgb.horizon,
                 robot_obs_horizon=cfg.task.shape_meta.obs.robot0_eef_pos.horizon,
@@ -157,7 +162,7 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                 mirror_swap=mirror_swap,
                 # dev_video_path='/dev/video13',
                 # action
-                max_pos_speed=0.3,
+                max_pos_speed=0.4,
                 max_rot_speed=1.0,
                 # robot_type=robot_type,
                 shm_manager=shm_manager) as env:
