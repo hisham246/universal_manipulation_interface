@@ -12,7 +12,18 @@ class FrankaInterface:
     # Robot methods
     def get_robot_state(self):
         data = self.robot.get_robot_state()
-        return data
+        data_state_dict = {
+            "timestamp": data.timestamp.seconds,
+            "joint_positions": data.joint_positions.numpy().tolist(),
+            "joint_velocities": data.joint_velocities.numpy().tolist(),
+            "joint_torques_computed": data.joint_torques_computed.numpy().tolist(),
+            "prev_joint_torques_computed": data.prev_joint_torques_computed.numpy().tolist(),
+            "prev_joint_torques_computed_safened": data.prev_joint_torques_computed_safened.numpy().tolist(),
+            "motor_torques_measured": data.motor_torques_measured.numpy().tolist(),
+            "motor_torques_external": data.motor_torques_external.numpy().tolist(),
+            "motor_torques_desired": data.motor_torques_desired.numpy().tolist(),
+        }
+        return data_state_dict
     
     def get_ee_pose(self):
         data = self.robot.get_ee_pose()
