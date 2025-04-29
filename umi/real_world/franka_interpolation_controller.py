@@ -15,6 +15,7 @@ from diffusion_policy.common.precise_sleep import precise_wait
 import torch
 from umi.common.pose_util import pose_to_mat, mat_to_pose
 import zerorpc
+import csv
 
 class Command(enum.Enum):
     STOP = 0
@@ -27,6 +28,10 @@ class FrankaInterface:
         self.server = zerorpc.Client(heartbeat=20)
         self.server.connect(f"tcp://{ip}:{port}")
 
+    def get_robot_state(self):
+        state = self.server.get_robot_state()
+        return state
+    
     def get_ee_pose(self):
         data = self.server.get_ee_pose()
         # print(f"Received data: {data}") 
@@ -233,6 +238,26 @@ class FrankaInterpolationController(mp.Process):
             
         # start polymetis interface
         robot = FrankaInterface(self.robot_ip, self.robot_port)
+
+        # Path to your output CSV file
+        self.robot_state_path = "/home/hisham246/uwaterloo/pickplace_test/robot_state.csv"
+
+        # Get a sample state to extract keys
+        sample_state = robot.get_robot_state()
+
+        # Flatten the keys (handle nested lists/arrays)
+        csv_header = ["timestamp"]
+        for key, value in sample_state.items():
+            if isinstance(value, (list, np.ndarray)):
+                csv_header.extend([f"{key}_{i}" for i in range(len(value))])
+            else:
+                csv_header.append(key)
+
+        # Open CSV file and write header
+        self.csv_file = open(self.robot_state_csv_path, mode="w", newline="")
+        self.csv_writer = csv.writer(self.csv_file)
+        self.csv_writer.writerow(csv_header)
+        self.csv_file.flush()
 
         try:
             if self.verbose:
