@@ -242,11 +242,10 @@ class FrankaInterpolationController(mp.Process):
         # Path to your output CSV file
         self.robot_state_path = "/home/hisham246/uwaterloo/pickplace_test/robot_state.csv"
 
-        # Get a sample state to extract keys
         sample_state = robot.get_robot_state()
 
-        # Flatten the keys (handle nested lists/arrays)
-        csv_header = ["timestamp"]
+        # Flatten the keys (handle lists)
+        csv_header = []
         for key, value in sample_state.items():
             if isinstance(value, (list, np.ndarray)):
                 csv_header.extend([f"{key}_{i}" for i in range(len(value))])
@@ -254,11 +253,11 @@ class FrankaInterpolationController(mp.Process):
                 csv_header.append(key)
 
         # Open CSV file and write header
-        self.csv_file = open(self.robot_state_csv_path, mode="w", newline="")
+        self.csv_file = open(self.robot_state_path, mode="w", newline="")
         self.csv_writer = csv.writer(self.csv_file)
         self.csv_writer.writerow(csv_header)
         self.csv_file.flush()
-
+        
         try:
             if self.verbose:
                 print(f"[FrankaPositionalController] Connect to robot: {self.robot_ip}")

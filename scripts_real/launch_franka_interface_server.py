@@ -14,14 +14,14 @@ class FrankaInterface:
         data = self.robot.get_robot_state()
         data_state_dict = {
             "timestamp": data.timestamp.seconds,
-            "joint_positions": data.joint_positions.numpy().tolist(),
-            "joint_velocities": data.joint_velocities.numpy().tolist(),
-            "joint_torques_computed": data.joint_torques_computed.numpy().tolist(),
-            "prev_joint_torques_computed": data.prev_joint_torques_computed.numpy().tolist(),
-            "prev_joint_torques_computed_safened": data.prev_joint_torques_computed_safened.numpy().tolist(),
-            "motor_torques_measured": data.motor_torques_measured.numpy().tolist(),
-            "motor_torques_external": data.motor_torques_external.numpy().tolist(),
-            "motor_torques_desired": data.motor_torques_desired.numpy().tolist(),
+            "joint_positions": list(data.joint_positions),
+            "joint_velocities": list(data.joint_velocities),
+            "joint_torques_computed": list(data.joint_torques_computed),
+            "prev_joint_torques_computed": list(data.prev_joint_torques_computed),
+            "prev_joint_torques_computed_safened": list(data.prev_joint_torques_computed_safened),
+            "motor_torques_measured": list(data.motor_torques_measured),
+            "motor_torques_external": list(data.motor_torques_external),
+            "motor_torques_desired": list(data.motor_torques_desired),
         }
         return data_state_dict
     
