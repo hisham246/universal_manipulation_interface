@@ -9,21 +9,36 @@ class FrankaInterface:
         self.robot = RobotInterface('localhost')
         self.gripper = GripperInterface('localhost')
 
-    # Robot methods
+    # # Robot methods
+    # def get_robot_state(self):
+    #     data = self.robot.get_robot_state()
+    #     data_state_dict = {
+    #         "timestamp": data.timestamp.seconds,
+    #         "joint_positions": list(data.joint_positions),
+    #         "joint_velocities": list(data.joint_velocities),
+    #         "joint_torques_computed": list(data.joint_torques_computed),
+    #         "prev_joint_torques_computed": list(data.prev_joint_torques_computed),
+    #         "prev_joint_torques_computed_safened": list(data.prev_joint_torques_computed_safened),
+    #         "motor_torques_measured": list(data.motor_torques_measured),
+    #         "motor_torques_external": list(data.motor_torques_external),
+    #         "motor_torques_desired": list(data.motor_torques_desired),
+    #     }
+    #     return data_state_dict
+    
     def get_robot_state(self):
         data = self.robot.get_robot_state()
-        data_state_dict = {
-            "timestamp": data.timestamp.seconds,
-            "joint_positions": list(data.joint_positions),
-            "joint_velocities": list(data.joint_velocities),
-            "joint_torques_computed": list(data.joint_torques_computed),
-            "prev_joint_torques_computed": list(data.prev_joint_torques_computed),
-            "prev_joint_torques_computed_safened": list(data.prev_joint_torques_computed_safened),
-            "motor_torques_measured": list(data.motor_torques_measured),
-            "motor_torques_external": list(data.motor_torques_external),
-            "motor_torques_desired": list(data.motor_torques_desired),
-        }
-        return data_state_dict
+        # data_state_dict = {
+        #     "timestamp": data.timestamp.seconds,
+        #     "joint_positions": list(data.joint_positions),
+        #     "joint_velocities": list(data.joint_velocities),
+        #     "joint_torques_computed": list(data.joint_torques_computed),
+        #     "prev_joint_torques_computed": list(data.prev_joint_torques_computed),
+        #     "prev_joint_torques_computed_safened": list(data.prev_joint_torques_computed_safened),
+        #     "motor_torques_measured": list(data.motor_torques_measured),
+        #     "motor_torques_external": list(data.motor_torques_external),
+        #     "motor_torques_desired": list(data.motor_torques_desired),
+        # }
+        return data
     
     def get_ee_pose(self):
         data = self.robot.get_ee_pose()
@@ -81,6 +96,9 @@ class FrankaInterface:
     
     def gripper_grasp(self, speed, force, grasp_width):
         self.gripper.grasp(speed, force, grasp_width)
+
+franka = FrankaInterface()
+print("Robot state:", franka.get_robot_state())
 
 s = zerorpc.Server(FrankaInterface())
 s.bind("tcp://0.0.0.0:4242")
