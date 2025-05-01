@@ -82,9 +82,6 @@ class FrankaInterface:
     def gripper_grasp(self, speed, force, grasp_width):
         self.gripper.grasp(speed, force, grasp_width)
 
-franka = FrankaInterface()
-print("Robot state:", franka.get_robot_state())
-
 s = zerorpc.Server(FrankaInterface())
 s.bind("tcp://0.0.0.0:4242")
 s.run()
