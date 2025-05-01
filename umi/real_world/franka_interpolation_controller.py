@@ -236,15 +236,14 @@ class FrankaInterpolationController(mp.Process):
             os.sched_setscheduler(
                 0, os.SCHED_RR, os.sched_param(20))
             
-        # start polymetis interface
+        # Start Polymetis interface
         robot = FrankaInterface(self.robot_ip, self.robot_port)
 
-        # Path to your output CSV file
-        self.robot_state_path = "/home/hisham246/uwaterloo/pickplace_test/robot_state.csv"
+        # Path to robot state file
+        self.robot_state_path = "/home/hisham246/uwaterloo/robot_state.csv"
 
         sample_state = robot.get_robot_state()
 
-        # Flatten the keys (handle lists)
         csv_header = []
         for key, value in sample_state.items():
             if isinstance(value, (list, np.ndarray)):
@@ -252,7 +251,7 @@ class FrankaInterpolationController(mp.Process):
             else:
                 csv_header.append(key)
 
-        # Open CSV file and write header
+        # Open and write into csv file
         self.csv_file = open(self.robot_state_path, mode="w", newline="")
         self.csv_writer = csv.writer(self.csv_file)
         self.csv_writer.writerow(csv_header)
@@ -281,7 +280,7 @@ class FrankaInterpolationController(mp.Process):
                 poses=[curr_pose]
             )
 
-            # start franka cartesian impedance policy
+            # Start Franka cartesian impedance policy
             robot.start_cartesian_impedance(
                 Kx=self.Kx,
                 Kxd=self.Kxd
@@ -302,7 +301,11 @@ class FrankaInterpolationController(mp.Process):
 
                 ee_pose = pose_interp(t_now)
                 # send command to robot
-                robot.update_desired_ee_pose(ee_pose)
+                # robot.update_desired_ee_pose(ee_pose)
+
+                _, q_des = robot.update_desired_ee_pose(ee_pose)
+
+                print("Desired joint positions:", q_des)
 
                 # update robot state
                 state = dict()
