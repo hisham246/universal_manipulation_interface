@@ -56,7 +56,7 @@ class FrankaInterface:
             position=torch.Tensor(pose[:3]),
             orientation=torch.Tensor(st.Rotation.from_rotvec(pose[3:]).as_quat())
         )
-        return joint_pos_desired.numpy().tolist(), success
+        return joint_pos_desired.numpy().tolist(), bool(success)
 
     def update_desired_ee_pose(self, pose):
         pose = np.asarray(pose)
