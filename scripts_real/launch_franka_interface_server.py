@@ -50,6 +50,14 @@ class FrankaInterface:
             Kxd=torch.Tensor(Kxd)
         )
 
+    def get_joint_pos_desired(self, pose):
+        pose = np.asarray(pose)
+        joint_pos_desired, success = self.robot.get_joint_pos_desired(
+            position=torch.Tensor(pose[:3]),
+            orientation=torch.Tensor(st.Rotation.from_rotvec(pose[3:]).as_quat())
+        )
+        return joint_pos_desired
+
     def update_desired_ee_pose(self, pose):
         pose = np.asarray(pose)
         self.robot.update_desired_ee_pose(

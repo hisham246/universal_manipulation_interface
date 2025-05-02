@@ -52,6 +52,9 @@ class FrankaInterface:
             Kx.tolist(),
             Kxd.tolist()
         )
+
+    def get_joint_pos_desired(self, pose: np.ndarray):
+        return np.array(self.server.get_joint_pos_desired(pose.tolist()))
     
     def update_desired_ee_pose(self, pose: np.ndarray):
         self.server.update_desired_ee_pose(pose.tolist())
@@ -310,7 +313,10 @@ class FrankaInterpolationController(mp.Process):
                 # tip_pose = pose_interp(t_now)
                 # flange_pose = mat_to_pose(pose_to_mat(tip_pose) @ tx_tip_flange)
 
+
                 ee_pose = pose_interp(t_now)
+                print("Joint Pos Desired:", robot.get_joint_pos_desired(ee_pose))
+
                 # send command to robot
                 robot.update_desired_ee_pose(ee_pose)
 
