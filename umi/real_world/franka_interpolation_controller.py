@@ -34,10 +34,8 @@ class FrankaInterface:
     
     def get_ee_pose(self):
         data = self.server.get_ee_pose()
-        # print(f"Received data: {data}") 
         pos = np.array(data[:3])
         rot_vec = np.array(data[3:])
-        # print(f"Position: {pos}, Rotation Vector: {rot_vec}")
         return np.concatenate([pos, rot_vec])
     
     def get_joint_positions(self):
@@ -239,23 +237,36 @@ class FrankaInterpolationController(mp.Process):
         # Start Polymetis interface
         robot = FrankaInterface(self.robot_ip, self.robot_port)
 
-        # Path to robot state file
-        self.robot_state_path = "/home/hisham246/uwaterloo/robot_state.csv"
+        robot_state_path_1 = "/home/hisham246/uwaterloo/robot_state_pickplace_test_1.csv"
 
-        sample_state = robot.get_robot_state()
+        robot_state_path_2 = "/home/hisham246/uwaterloo/robot_state_pickplace_test_2.csv"
 
-        csv_header = []
-        for key, value in sample_state.items():
-            if isinstance(value, (list, np.ndarray)):
-                csv_header.extend([f"{key}_{i}" for i in range(len(value))])
+        # Get example state to construct headers
+        example_state = robot.get_robot_state()
+        csv_fieldnames_1 = []
+        for key, value in example_state.items():
+            if isinstance(value, list) or isinstance(value, np.ndarray):
+                csv_fieldnames_1.extend([f"{key}_{i}" for i in range(len(value))])
             else:
-                csv_header.append(key)
+                csv_fieldnames_1.append(key)
 
-        # Open and write into csv file
-        self.csv_file = open(self.robot_state_path, mode="w", newline="")
-        self.csv_writer = csv.writer(self.csv_file)
-        self.csv_writer.writerow(csv_header)
-        self.csv_file.flush()
+        # Write header
+        with open(robot_state_path_1, mode='w', newline='') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=csv_fieldnames_1)
+            writer.writeheader()
+
+
+        # Define the headers
+        csv_fieldnames_2 = (
+            [f"ee_pose_{i}" for i in range(6)] +
+            [f"joint_pos_{i}" for i in range(7)] +
+            [f"joint_vel_{i}" for i in range(7)]
+        )
+
+        # Write header once
+        with open(robot_state_path_2, mode='w', newline='') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=csv_fieldnames_2)
+            writer.writeheader()
         
         try:
             if self.verbose:
@@ -301,18 +312,50 @@ class FrankaInterpolationController(mp.Process):
 
                 ee_pose = pose_interp(t_now)
                 # send command to robot
-                # robot.update_desired_ee_pose(ee_pose)
+                robot.update_desired_ee_pose(ee_pose)
 
-                _, q_des = robot.update_desired_ee_pose(ee_pose)
+                # result = robot.update_desired_ee_pose(ee_pose)
 
-                print("Desired joint positions:", q_des)
+                # if result is not None:
+                #     update, q_des = result
+                #     print("Desired joint positions:", q_des)
 
                 # update robot state
                 state = dict()
                 for key, func_name in self.receive_keys:
                     state[key] = getattr(robot, func_name)()
 
-                    
+                robot_state = robot.get_robot_state()
+                flat_state = {}
+                for key, value in robot_state.items():
+                    if isinstance(value, (list, np.ndarray)):
+                        for i, v in enumerate(value):
+                            flat_state[f"{key}_{i}"] = v
+                    else:
+                        flat_state[key] = value
+
+                with open(robot_state_path_1, mode='a', newline='') as csvfile:
+                    writer = csv.DictWriter(csvfile, fieldnames=csv_fieldnames_1)
+                    writer.writerow(flat_state)
+
+
+                # Collect and flatten low-level state
+                ee_pose = state['ActualTCPPose']        # 6D pose
+                joint_pos = state['ActualQ']            # 7D positions
+                joint_vel = state['ActualQd']           # 7D velocities
+
+                lowlevel_row = {}
+                for i in range(6):
+                    lowlevel_row[f"ee_pose_{i}"] = ee_pose[i]
+                for i in range(7):
+                    lowlevel_row[f"joint_pos_{i}"] = joint_pos[i]
+                    lowlevel_row[f"joint_vel_{i}"] = joint_vel[i]
+
+                # Write to low-level CSV
+                with open(robot_state_path_2, mode='a', newline='') as csvfile:
+                    writer = csv.DictWriter(csvfile, fieldnames=csv_fieldnames_2)
+                    writer.writerow(lowlevel_row)
+
                 t_recv = time.time()
                 state['robot_receive_timestamp'] = t_recv
                 state['robot_timestamp'] = t_recv - self.receive_latency
