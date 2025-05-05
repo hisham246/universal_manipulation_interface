@@ -9,7 +9,7 @@ from diffusion_policy.codecs.imagecodecs_numcodecs import register_codecs, JpegX
 register_codecs()
 
 # Open the Zarr dataset
-zarr_path = "/home/hisham246/uwaterloo/pickplace_2/replay_buffer.zarr"
+zarr_path = "/home/hisham246/uwaterloo/pickplace_test/replay_buffer.zarr"
 root = zarr.open(zarr_path)
 
 # Extract episode boundaries
@@ -17,7 +17,7 @@ episode_ends = root['meta']['episode_ends'][:]
 episode_starts = np.concatenate(([0], episode_ends[:-1]))
 
 # List of data arrays to extract
-data_keys = ["timestamp", "robot0_eef_pos", "robot0_eef_rot_axis_angle", "robot0_joint_pos", "robot0_joint_vel"]
+data_keys = ["timestamp", "action", "robot0_eef_pos", "robot0_eef_rot_axis_angle", "robot0_joint_pos", "robot0_joint_vel"]
 
 # Iterate over episodes and extract data
 for i, (start, end) in enumerate(zip(episode_starts, episode_ends)):
@@ -38,5 +38,5 @@ for i, (start, end) in enumerate(zip(episode_starts, episode_ends)):
 
     # Save to CSV
     csv_filename = f"episode_{i+1}.csv"
-    df.to_csv("/home/hisham246/uwaterloo/pickplace_2/csv/" + csv_filename, index=False)
+    df.to_csv("/home/hisham246/uwaterloo/pickplace_test/csv/" + csv_filename, index=False)
     print(f"Saved {csv_filename}")

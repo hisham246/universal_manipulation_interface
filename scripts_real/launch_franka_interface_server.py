@@ -13,7 +13,7 @@ class FrankaInterface:
     def get_robot_state(self):
         data = self.robot.get_robot_state()
         data_state_dict = {
-            "timestamp": float(data.timestamp.nanos),
+            "timestamp": float(data.timestamp.seconds) + float(data.timestamp.nanos) * 1e-9,
             "joint_positions": list(data.joint_positions),
             "joint_velocities": list(data.joint_velocities),
             "joint_torques_computed": list(data.joint_torques_computed),
