@@ -80,8 +80,8 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 # @click.option('--camera_reorder', '-cr', default='021')
 @click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
 # @click.option('--init_joints', '-j', is_flag=True, default=False, help="Whether to initialize robot joint configuration in the beginning.")
-@click.option('--steps_per_inference', '-si', default= 16, type=int, help="Action horizon for inference.")
-@click.option('--max_duration', '-md', default=30, help='Max duration for each epoch in seconds.')
+@click.option('--steps_per_inference', '-si', default= 6, type=int, help="Action horizon for inference.")
+@click.option('--max_duration', '-md', default=20, help='Max duration for each epoch in seconds.')
 @click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
 @click.option('--command_latency', '-cl', default=0.01, type=float, help="Latency between receiving SapceMouse command to executing on Robot in Sec.")
 @click.option('-nm', '--no_mirror', is_flag=True, default=False)
@@ -384,6 +384,7 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                     precise_wait(eval_t_start - frame_latency, time_func=time.time)
                     print("Started!")
                     iter_idx = 0
+                    last_action_end_time = time.time()
                     while True:
                         # calculate timing
                         t_cycle_end = t_start + (iter_idx + steps_per_inference) * dt
@@ -396,7 +397,7 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                             obs[f'robot0_eef_rot_axis_angle']
                         ], axis=-1)[-1]
                         obs_timestamps = obs['timestamp']
-                        print(f'Obs latency {time.time() - obs_timestamps[-1]}')
+                        # print(f'Obs latency {time.time() - obs_timestamps[-1]}')
 
                         # run inference
                         with torch.no_grad():
@@ -410,7 +411,8 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                             result = policy.predict_action(obs_dict)
                             raw_action = result['action_pred'][0].detach().to('cpu').numpy()
                             action = get_real_umi_action(raw_action, obs, action_pose_repr)
-                            print('Inference latency:', time.time() - s)
+                            # inference_latency = time.time() - s
+                            # print('Inference latency:', time.time() - s)
                         
                         # convert policy action to env actions
                         this_target_poses = action
@@ -418,8 +420,15 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
 
                         # deal with timing
                         # the same step actions are always the target for
-                        action_timestamps = (np.arange(len(action), dtype=np.float64)
-                            ) * dt + obs_timestamps[-1]
+                        # action_timestamps = (np.arange(len(action), dtype=np.float64)
+                        #     ) * dt + obs_timestamps[-1]
+
+                        T_now = time.time()
+                        next_action_start = max(T_now + 0.01, last_action_end_time)
+                        # Schedule new actions from when the last one ends
+                        action_timestamps = np.arange(steps_per_inference) * dt + next_action_start
+                        last_action_end_time = action_timestamps[-1]
+
                         action_exec_latency = 0.01
                         curr_time = time.time()
                         is_new = action_timestamps > (curr_time + action_exec_latency)
@@ -442,7 +451,7 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                             timestamps=action_timestamps,
                             compensate_latency=True
                         )      
-                        print(f"Submitted {len(this_target_poses)} steps of actions.")
+                        # print(f"Submitted {len(this_target_poses)} steps of actions.")
 
                         # visualize
                         episode_id = env.replay_buffer.n_episodes
@@ -485,7 +494,10 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                             break
 
                         # wait for execution
-                        precise_wait(t_cycle_end - frame_latency)
+
+                        # precise_wait(t_cycle_end - frame_latency)
+                        precise_wait(last_action_end_time - frame_latency)
+
                         iter_idx += steps_per_inference
 
                 except KeyboardInterrupt:

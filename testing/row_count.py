@@ -1,6 +1,6 @@
 import pandas as pd
 
-file1 = "/home/hisham246/uwaterloo/6_steps/robot_state_pickplace_test_1.csv"
+file1 = "/home/hisham246/uwaterloo/6_steps/robot_state_pickplace_test_2.csv"
 file2 = "/home/hisham246/uwaterloo/6_steps/joint_pos_desired.csv"
 
 df1 = pd.read_csv(file1)

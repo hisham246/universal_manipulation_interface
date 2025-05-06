@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Load the CSV file
-file_path = "/home/hisham246/uwaterloo/pickplace_test/csv/episode_1.csv"
+file_path = "/home/hisham246/uwaterloo/pickplace_test_2/csv/episode_1.csv"
 df = pd.read_csv(file_path)
 
 # Extract time, commanded positions, and actual positions
@@ -15,8 +15,6 @@ act_pos = df[['robot0_eef_pos_0', 'robot0_eef_pos_1', 'robot0_eef_pos_2']].to_nu
 time = time[1:]
 cmd_pos = cmd_pos[1:]
 act_pos = act_pos[1:]
-
-print(cmd_pos.shape)
 
 # Compute velocities
 dt = np.gradient(time)

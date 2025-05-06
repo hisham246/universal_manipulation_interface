@@ -3,14 +3,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Load the CSV file
-desired_joint_positions_path = "/home/hisham246/uwaterloo/6_steps/joint_pos_desired.csv"
-actual_joint_path = "/home/hisham246/uwaterloo/6_steps/robot_state_pickplace_test_1.csv"
+desired_joint_positions_path = "/home/hisham246/uwaterloo/12_steps/joint_pos_desired.csv"
+actual_joint_path = "/home/hisham246/uwaterloo/12_steps/robot_state_pickplace_test_1.csv"
 
 desired_joint_positions_df = pd.read_csv(desired_joint_positions_path)
 actual_joint_df = pd.read_csv(actual_joint_path)
 
 # Extract time, commanded positions, and actual positions
-time = (actual_joint_df['timestamp'] - actual_joint_df['timestamp'].iloc[0]) / 1e9
+time = actual_joint_df['timestamp'] - actual_joint_df['timestamp'].iloc[0]
 
 print(time)
 
@@ -38,7 +38,7 @@ dq = actual_joint_df[['joint_velocities_0',
 
 # Discard the first row to avoid zero velocity artifacts
 time = time[1:]
-q_des = q_des[1:]
+q_des = q_des[2:]
 q = q[1:]
 dq = dq[1:]
 
