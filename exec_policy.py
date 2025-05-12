@@ -63,6 +63,7 @@ from umi.real_world.real_inference_util import (get_real_obs_resolution,
                                                 get_real_umi_obs_dict,
                                                 get_real_umi_action)
 from umi.real_world.spacemouse_shared_memory import Spacemouse
+import pandas as pd
 
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
@@ -81,7 +82,7 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 @click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
 # @click.option('--init_joints', '-j', is_flag=True, default=False, help="Whether to initialize robot joint configuration in the beginning.")
 @click.option('--steps_per_inference', '-si', default= 6, type=int, help="Action horizon for inference.")
-@click.option('--max_duration', '-md', default=20, help='Max duration for each epoch in seconds.')
+@click.option('--max_duration', '-md', default=30, help='Max duration for each epoch in seconds.')
 @click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
 @click.option('--command_latency', '-cl', default=0.01, type=float, help="Latency between receiving SapceMouse command to executing on Robot in Sec.")
 @click.option('-nm', '--no_mirror', is_flag=True, default=False)
@@ -162,8 +163,8 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                 mirror_swap=mirror_swap,
                 # dev_video_path='/dev/video13',
                 # action
-                max_pos_speed=0.4,
-                max_rot_speed=1.0,
+                max_pos_speed=1.5,
+                max_rot_speed=2.0,
                 # robot_type=robot_type,
                 shm_manager=shm_manager) as env:
             cv2.setNumThreads(2)
@@ -384,7 +385,8 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                     precise_wait(eval_t_start - frame_latency, time_func=time.time)
                     print("Started!")
                     iter_idx = 0
-                    last_action_end_time = time.time()
+                    # last_action_end_time = time.time()
+                    action_log = []
                     while True:
                         # calculate timing
                         t_cycle_end = t_start + (iter_idx + steps_per_inference) * dt
@@ -411,6 +413,15 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                             result = policy.predict_action(obs_dict)
                             raw_action = result['action_pred'][0].detach().to('cpu').numpy()
                             action = get_real_umi_action(raw_action, obs, action_pose_repr)
+                            for a, t in zip(action, obs_timestamps[-1] + dt + np.arange(len(action)) * dt):
+                                a = a.tolist()
+                                action_log.append({'timestamp': t, 
+                                                   'ee_pos_0': a[0],
+                                                   'ee_pos_1': a[1],
+                                                   'ee_pos_2': a[2],
+                                                   'ee_rot_0': a[3],
+                                                   'ee_rot_1': a[4],
+                                                   'ee_rot_2': a[5],})
                             # inference_latency = time.time() - s
                             # print('Inference latency:', time.time() - s)
                         
@@ -420,18 +431,14 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
 
                         # deal with timing
                         # the same step actions are always the target for
-                        # action_timestamps = (np.arange(len(action), dtype=np.float64)
-                        #     ) * dt + obs_timestamps[-1]
-
-                        T_now = time.time()
-                        next_action_start = max(T_now + 0.01, last_action_end_time)
-                        # Schedule new actions from when the last one ends
-                        action_timestamps = np.arange(steps_per_inference) * dt + next_action_start
-                        last_action_end_time = action_timestamps[-1]
-
+                        # the next step, so we can just use the last one
+                        action_timestamps = (np.arange(len(action), dtype=np.float64)
+                            ) * dt + obs_timestamps[-1]
+                        
                         action_exec_latency = 0.01
                         curr_time = time.time()
                         is_new = action_timestamps > (curr_time + action_exec_latency)
+                        print("Is New:", is_new)
                         if np.sum(is_new) == 0:
                             # exceeded time budget, still do something
                             this_target_poses = this_target_poses[[-1]]
@@ -444,6 +451,21 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                             this_target_poses = this_target_poses[is_new]
                             action_timestamps = action_timestamps[is_new]
 
+                        # base_time = obs_timestamps[-1]  # this is when the observation was taken
+                        # target_start_time = base_time + dt  # start actions after next dt
+                        # # Schedule steps_per_inference actions at future dt intervals
+                        # action_timestamps = target_start_time + (np.arange(len(action), dtype=np.float64)) * dt
+                        # Filter out timestamps that are already too late to execute
+                        # curr_time = time.time()
+                        # action_exec_latency = 0.01
+                        # is_new = action_timestamps > (curr_time + action_exec_latency)
+                        # this_target_poses = this_target_poses[is_new]
+                        # action_timestamps = action_timestamps[is_new]
+
+                        # # If all are too late, fallback to sending one action
+                        # if len(action_timestamps) == 0:
+                        #     this_target_poses = this_target_poses[[-1]] if len(this_target_poses) > 0 else np.zeros((1, 7))
+                        #     action_timestamps = np.array([curr_time + 0.01])
 
                         # execute actions
                         env.exec_actions(
@@ -451,7 +473,7 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                             timestamps=action_timestamps,
                             compensate_latency=True
                         )      
-                        # print(f"Submitted {len(this_target_poses)} steps of actions.")
+                        print(f"Submitted {len(this_target_poses)} steps of actions.")          
 
                         # visualize
                         episode_id = env.replay_buffer.n_episodes
@@ -494,9 +516,7 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                             break
 
                         # wait for execution
-
-                        # precise_wait(t_cycle_end - frame_latency)
-                        precise_wait(last_action_end_time - frame_latency)
+                        precise_wait(t_cycle_end - frame_latency)
 
                         iter_idx += steps_per_inference
 
@@ -504,6 +524,11 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                     print("Interrupted!")
                     # stop robot.
                     env.end_episode()
+                    if len(action_log) > 0:
+                        df = pd.DataFrame(action_log)
+                        csv_path = os.path.join(output, f"policy_actions_episode_{episode_id}.csv")
+                        df.to_csv(csv_path, index=False)
+                        print(f"Saved actions to {csv_path}")
                 
                 print("Stopped.")
 

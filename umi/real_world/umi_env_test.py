@@ -215,7 +215,8 @@ class UmiEnv:
             robot_ip=robot_ip,
             frequency=1000,
             Kx_scale=1.0,
-            Kxd_scale=np.array([2.0,1.5,2.0,1.0,1.0,1.0]),
+            # Kxd_scale=np.array([2.0,1.5,2.0,1.0,1.0,1.0]),
+            Kxd_scale=np.array([1.0,0.5,1.0,1.0,1.0,1.0]),
             verbose=False,
             receive_latency=robot_obs_latency
         )

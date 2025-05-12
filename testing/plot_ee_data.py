@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Load the CSV file
-file_path = "/home/hisham246/uwaterloo/pickplace_test_2/csv/episode_1.csv"
+file_path = "/home/hisham246/uwaterloo/pickplace_test_3/csv/episode_2.csv"
 df = pd.read_csv(file_path)
 
 # Extract time, commanded positions, and actual positions
