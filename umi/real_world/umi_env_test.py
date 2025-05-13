@@ -8,7 +8,6 @@ from multiprocessing.managers import SharedMemoryManager
 from umi.real_world.franka_interpolation_controller import FrankaInterpolationController
 from umi.real_world.franka_hand_controller import FrankaHandController
 from umi.real_world.multi_uvc_camera import MultiUvcCamera, VideoRecorder
-from umi.real_world.uvc_camera import UvcCamera
 from diffusion_policy.common.timestamp_accumulator import (
     TimestampActionAccumulator,
     ObsAccumulator
@@ -210,15 +209,20 @@ class UmiEnv:
             verbose=False
         )
 
+        self.replay_buffer = replay_buffer
+        self.episode_id_counter = self.replay_buffer.n_episodes
+        
         robot = FrankaInterpolationController(
             shm_manager=shm_manager,
             robot_ip=robot_ip,
             frequency=1000,
             Kx_scale=1.0,
             # Kxd_scale=np.array([2.0,1.5,2.0,1.0,1.0,1.0]),
-            Kxd_scale=np.array([1.0,0.5,1.0,1.0,1.0,1.0]),
+            Kxd_scale=np.array([0.75,0.5,0.75,1.0,1.0,1.0]),
             verbose=False,
-            receive_latency=robot_obs_latency
+            receive_latency=robot_obs_latency,
+            output_dir=output_dir,
+            episode_id=self.episode_id_counter,
         )
         
         gripper = FrankaHandController(
@@ -253,7 +257,6 @@ class UmiEnv:
         # recording
         self.output_dir = output_dir
         self.video_dir = video_dir
-        self.replay_buffer = replay_buffer
         # temp memory buffers
         self.last_camera_data = None
         # recording buffers
@@ -261,7 +264,7 @@ class UmiEnv:
         self.action_accumulator = None
 
         self.start_time = None
-    
+            
     # ======== start-stop API =============
     @property
     def is_ready(self):
@@ -489,7 +492,8 @@ class UmiEnv:
         assert self.is_ready
 
         # prepare recording stuff
-        episode_id = self.replay_buffer.n_episodes
+        # episode_id = self.replay_buffer.n_episodes
+        episode_id = self.episode_id_counter
         this_video_dir = self.video_dir.joinpath(str(episode_id))
         this_video_dir.mkdir(parents=True, exist_ok=True)
         n_cameras = 1

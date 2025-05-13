@@ -438,7 +438,7 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                         action_exec_latency = 0.01
                         curr_time = time.time()
                         is_new = action_timestamps > (curr_time + action_exec_latency)
-                        print("Is New:", is_new)
+                        # print("Is New:", is_new)
                         if np.sum(is_new) == 0:
                             # exceeded time budget, still do something
                             this_target_poses = this_target_poses[[-1]]

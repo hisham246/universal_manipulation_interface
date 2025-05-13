@@ -37,6 +37,6 @@ for i, (start, end) in enumerate(zip(episode_starts, episode_ends)):
         df = pd.concat([df, pd.DataFrame(values, columns=columns)], axis=1)
 
     # Save to CSV
-    csv_filename = f"episode_{i+1}.csv"
+    csv_filename = f"episode_{i}.csv"
     df.to_csv("/home/hisham246/uwaterloo/pickplace_test_3/csv/" + csv_filename, index=False)
     print(f"Saved {csv_filename}")

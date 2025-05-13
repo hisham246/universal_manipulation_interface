@@ -16,6 +16,7 @@ import torch
 from umi.common.pose_util import pose_to_mat, mat_to_pose
 import zerorpc
 import csv
+import pathlib
 
 class Command(enum.Enum):
     STOP = 0
@@ -85,7 +86,9 @@ class FrankaInterpolationController(mp.Process):
         soft_real_time=False,
         verbose=False,
         get_max_k=None,
-        receive_latency=0.0
+        receive_latency=0.0,
+        output_dir=None,
+        episode_id=None
         ):
         """
         robot_ip: the ip of the middle-layer controller (NUC)
@@ -112,6 +115,10 @@ class FrankaInterpolationController(mp.Process):
         self.soft_real_time = soft_real_time
         self.receive_latency = receive_latency
         self.verbose = verbose
+
+        # Saving
+        self.output_dir = pathlib.Path(output_dir) if output_dir is not None else None
+        self.episode_id = episode_id
 
         if get_max_k is None:
             get_max_k = int(frequency * 5)
@@ -241,9 +248,16 @@ class FrankaInterpolationController(mp.Process):
         # Start Polymetis interface
         robot = FrankaInterface(self.robot_ip, self.robot_port)
 
-        robot_state_path_1 = "/home/hisham246/uwaterloo/robot_state_pickplace_test_1.csv"
+        if self.output_dir is not None and self.episode_id is not None:
+            self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        robot_state_path_2 = "/home/hisham246/uwaterloo/robot_state_pickplace_test_2.csv"
+            robot_state_path_1 = self.output_dir / f"robot_state_1_episode_{self.episode_id}.csv"
+            robot_state_path_2 = self.output_dir / f"robot_state_2_episode_{self.episode_id}.csv"
+            joint_pos_desired_path = self.output_dir / f"joint_pos_desired_episode_{self.episode_id}.csv"
+        else:
+            robot_state_path_1 = pathlib.Path("/tmp/robot_state_1.csv")
+            robot_state_path_2 = pathlib.Path("/tmp/robot_state_2.csv")
+            joint_pos_desired_path = pathlib.Path("/tmp/joint_pos_desired.csv")
 
         # Get example state to construct headers
         example_state = robot.get_robot_state()
@@ -272,7 +286,6 @@ class FrankaInterpolationController(mp.Process):
             writer = csv.DictWriter(csvfile, fieldnames=csv_fieldnames_2)
             writer.writeheader()
 
-        joint_pos_desired_path = "/home/hisham246/uwaterloo/joint_pos_desired.csv"
         csv_fieldnames_3 = [f"joint_pos_desired_{i}" for i in range(7)]
 
         # Write header once
