@@ -106,8 +106,11 @@ def main(robot_hostname, frequency):
     fig, axes = plt.subplots(n_dims, 3)
     fig.set_size_inches(15, 15, forward=True)
 
+
     for i in range(n_dims):
         latency, info = get_latency(x_target[...,i], t_target, x_actual[...,i], t_actual)
+
+        print("Latency:", latency)
 
         row = axes[i]
         ax = row[0]

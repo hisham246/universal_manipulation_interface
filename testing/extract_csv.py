@@ -4,12 +4,16 @@ import numpy as np
 import sys
 sys.path.append('/home/hisham246/uwaterloo/universal_manipulation_interface')
 from diffusion_policy.codecs.imagecodecs_numcodecs import register_codecs, JpegXl
+import os
 
 # Register required codecs
 register_codecs()
 
 # Open the Zarr dataset
 zarr_path = "/home/hisham246/uwaterloo/pickplace_test_3/replay_buffer.zarr"
+csv_dir = "/home/hisham246/uwaterloo/pickplace_test_3/csv"
+
+os.makedirs(csv_dir, exist_ok=True)
 root = zarr.open(zarr_path)
 
 # Extract episode boundaries
@@ -38,5 +42,6 @@ for i, (start, end) in enumerate(zip(episode_starts, episode_ends)):
 
     # Save to CSV
     csv_filename = f"episode_{i}.csv"
-    df.to_csv("/home/hisham246/uwaterloo/pickplace_test_3/csv/" + csv_filename, index=False)
+    csv_path = os.path.join(csv_dir, csv_filename)
+    df.to_csv(csv_path, index=False)
     print(f"Saved {csv_filename}")
