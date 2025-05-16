@@ -81,7 +81,7 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 # @click.option('--camera_reorder', '-cr', default='021')
 @click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
 # @click.option('--init_joints', '-j', is_flag=True, default=False, help="Whether to initialize robot joint configuration in the beginning.")
-@click.option('--steps_per_inference', '-si', default= 8, type=int, help="Action horizon for inference.")
+@click.option('--steps_per_inference', '-si', default= 6, type=int, help="Action horizon for inference.")
 @click.option('--max_duration', '-md', default=30, help='Max duration for each epoch in seconds.')
 @click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
 @click.option('--command_latency', '-cl', default=0.01, type=float, help="Latency between receiving SapceMouse command to executing on Robot in Sec.")
@@ -146,7 +146,7 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                 # camera_obs_latency=0.145,
                 # robot_obs_latency=0.0001,
                 # gripper_obs_latency=0.01,
-                # robot_action_latency=0.1,
+                # robot_action_latency=0.2,
                 # gripper_action_latency=0.1,
                 camera_obs_latency=0.0,
                 robot_obs_latency=0.0,
@@ -432,19 +432,22 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                         # deal with timing
                         # the same step actions are always the target for
                         # the next step, so we can just use the last one
-                        # action_timestamps = (np.arange(len(action), dtype=np.float64)
-                        #     ) * dt + obs_timestamps[-1]
+                        action_timestamps = (np.arange(len(action), dtype=np.float64)
+                            ) * dt + obs_timestamps[-1]
+                        
+                        # dt_list = np.array([dt, dt, 3 * dt, dt, dt, dt, dt, dt])
+                        # action_timestamps = np.cumsum(dt_list) - dt_list[0] + obs_timestamps[-1]
                         
                         action_exec_latency = 0.01
 
-                        base_time = max(obs_timestamps[-1] + 2 * dt, time.time() + action_exec_latency)
-                        action_timestamps = base_time + np.arange(len(action), dtype=np.float64) * dt
+                        # base_time = max(obs_timestamps[-1] + 2 * dt, time.time() + action_exec_latency)
+                        # action_timestamps = base_time + np.arange(len(action), dtype=np.float64) * dt
                         
                         curr_time = time.time()
                         is_new = action_timestamps > (curr_time + action_exec_latency)
                         print("Is New:", is_new)
                         if np.sum(is_new) == 0:
-                            # exceeded time budget, still do something
+                            # exceeded time budget but still do something
                             this_target_poses = this_target_poses[[-1]]
                             # schedule on next available step
                             next_step_idx = int(np.ceil((curr_time - eval_t_start) / dt))

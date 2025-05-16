@@ -1,9 +1,13 @@
+# With compensation: episode 3 and 7
+# Without compensation: episode 5
+# Faster control frequency: epsiode 9
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
 # Load the CSV file
-file_path = "/home/hisham246/uwaterloo/pickplace_test_3/csv/episode_3.csv"
+file_path = "/home/hisham246/uwaterloo/pickplace_test_3/csv/episode_15.csv"
 df = pd.read_csv(file_path)
 
 # Extract time, commanded positions, and actual positions
