@@ -10,8 +10,8 @@ import os
 register_codecs()
 
 # Open the Zarr dataset
-zarr_path = "/home/hisham246/uwaterloo/pickplace_test_3/replay_buffer.zarr"
-csv_dir = "/home/hisham246/uwaterloo/pickplace_test_3/csv"
+zarr_path = "/home/hisham246/uwaterloo/pickplace_test_4/replay_buffer.zarr"
+csv_dir = "/home/hisham246/uwaterloo/pickplace_test_4/csv"
 
 os.makedirs(csv_dir, exist_ok=True)
 root = zarr.open(zarr_path)

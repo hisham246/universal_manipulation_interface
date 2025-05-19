@@ -3,8 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Load the CSV file
-file_path_state = "/home/hisham246/uwaterloo/pickplace_test_3/csv/episode_15.csv"
-file_path_action = "/home/hisham246/uwaterloo/pickplace_test_3/policy_actions_episode_15.csv"
+file_path_state = "/home/hisham246/uwaterloo/pickplace_test_4/csv/episode_0.csv"
+file_path_action = "/home/hisham246/uwaterloo/pickplace_test_4/policy_actions_episode_0.csv"
 state = pd.read_csv(file_path_state)
 action = pd.read_csv(file_path_action)
 
