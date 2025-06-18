@@ -36,8 +36,6 @@ from umi.common.interpolation_util import (
     PoseInterpolator
 )
 
-from collections import Counter
-
 
 # %%
 def get_bool_segments(bool_seq):
@@ -207,97 +205,6 @@ def main(input, output, tcp_offset, tx_slam_tag,
             
     video_meta_df = pd.DataFrame(data=rows)
 
-
-    # # %% stage 2
-    # # match videos into demos
-    # # output:
-    # # demo_data_list = {
-    # #     "video_idxs": [int],
-    # #     # calculating start/end frame requires gripper info, defer to later stage
-    # #     "start_timestamp": float,
-    # #     "end_timestamp": float
-    # # }
-    # # map serial to count
-    # serial_count = video_meta_df['camera_serial'].value_counts()
-    # print("Found following cameras:")
-    # print(serial_count)
-    # n_cameras = len(serial_count)
-    
-    # events = list()
-    # for vid_idx, row in video_meta_df.iterrows():
-    #     events.append({
-    #         'vid_idx': vid_idx,
-    #         'camera_serial': row['camera_serial'],
-    #         't': row['start_timestamp'],
-    #         'is_start': True
-    #     })
-    #     events.append({
-    #         'vid_idx': vid_idx,
-    #         'camera_serial': row['camera_serial'],
-    #         't': row['end_timestamp'],
-    #         'is_start': False
-    #     })
-    # events = sorted(events, key=lambda x: x['t'])
-    
-    # demo_data_list = list()
-    # on_videos = set()
-    # # on_cameras = set()
-    # on_cameras = Counter()
-    # used_videos = set()
-    # t_demo_start = None
-    # for i, event in enumerate(events):
-    #     # update state based on event
-    #     # if event['is_start']:
-    #     #     on_videos.add(event['vid_idx'])
-    #     #     on_cameras.add(event['camera_serial'])
-    #     # else:
-    #     #     on_videos.remove(event['vid_idx'])
-    #     #     on_cameras.remove(event['camera_serial'])
-    #     if event['is_start']:
-    #         on_videos.add(event['vid_idx'])
-    #         on_cameras[event['camera_serial']] += 1
-    #     else:
-    #         on_videos.remove(event['vid_idx'])
-    #         on_cameras[event['camera_serial']] -= 1
-    #         if on_cameras[event['camera_serial']] == 0:
-    #             del on_cameras[event['camera_serial']]
-
-    #     # if len(on_videos) != len(on_cameras):
-    #     #     print("Video indices on:", on_videos)
-    #     #     print("Camera serials on:", on_cameras)
-    #     #     for vid_idx in on_videos:
-    #     #         print(f"vid_idx {vid_idx}: {video_meta_df.loc[vid_idx]['camera_serial']}")
-    #     #     raise RuntimeError("Mismatch between active videos and cameras")
-        
-    #     # print("videos:", len(on_videos))
-    #     # print("cameras:", len(on_cameras))
-    #     # assert len(on_videos) == len(on_cameras)
-        
-    #     if len(on_cameras) == n_cameras:
-    #         # start demo episode where all cameras are recording
-    #         t_demo_start = event['t']
-    #     elif t_demo_start is not None:
-    #         # demo already started, but one camera stopped
-    #         # stopping episode
-    #         assert not event['is_start']
-            
-    #         t_start = t_demo_start
-    #         t_end = event['t']
-            
-    #         # undo state update to get full set of videos
-    #         demo_vid_idxs = set(on_videos)
-    #         demo_vid_idxs.add(event['vid_idx'])
-    #         used_videos.update(demo_vid_idxs)
-            
-    #         demo_data_list.append({
-    #             "video_idxs": sorted(demo_vid_idxs),
-    #             "start_timestamp": t_start,
-    #             "end_timestamp": t_end
-    #         })
-    #         t_demo_start = None
-    # unused_videos = set(video_meta_df.index) - used_videos
-    # for vid_idx in unused_videos:
-    #     print(f"Warning: video {video_meta_df.loc[vid_idx]['video_dir'].name} unused in any demo")
 
     # %% stage 2
     # match videos into demos

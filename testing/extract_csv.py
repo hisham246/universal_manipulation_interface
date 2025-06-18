@@ -10,8 +10,8 @@ import os
 register_codecs()
 
 # Open the Zarr dataset
-zarr_path = "/home/hisham246/uwaterloo/pickplace_test_4/replay_buffer.zarr"
-csv_dir = "/home/hisham246/uwaterloo/pickplace_test_4/csv"
+zarr_path = "/home/hisham246/uwaterloo/umi/pickplace_trial_2/pickplace_trial_2.zarr"
+csv_dir = "/home/hisham246/uwaterloo/umi/pickplace_trial_2/csv"
 
 os.makedirs(csv_dir, exist_ok=True)
 root = zarr.open(zarr_path)
@@ -21,7 +21,9 @@ episode_ends = root['meta']['episode_ends'][:]
 episode_starts = np.concatenate(([0], episode_ends[:-1]))
 
 # List of data arrays to extract
+# data_keys = ["timestamp", "action", "robot0_eef_pos", "robot0_eef_rot_axis_angle", "robot0_joint_pos", "robot0_joint_vel"]
 data_keys = ["timestamp", "action", "robot0_eef_pos", "robot0_eef_rot_axis_angle", "robot0_joint_pos", "robot0_joint_vel"]
+
 
 # Iterate over episodes and extract data
 for i, (start, end) in enumerate(zip(episode_starts, episode_ends)):
