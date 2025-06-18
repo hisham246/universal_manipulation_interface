@@ -7,7 +7,7 @@ import os
 register_codecs()
 
 # Open the zarr dataset
-zarr_path = "/home/hisham246/uwaterloo/umi/surface_wiping_trial_1/dataset.zarr.zip"
+zarr_path = "/home/hisham246/uwaterloo/umi/surface_wiping_trial_1/dataset_stiffness.zarr.zip"
 csv_path = "/home/hisham246/uwaterloo/umi/surface_wiping_trial_1/csv/"
 os.makedirs(csv_path, exist_ok=True)
 root = zarr.open(zarr_path)
