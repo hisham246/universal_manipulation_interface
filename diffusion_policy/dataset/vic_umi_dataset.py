@@ -366,6 +366,8 @@ class VicUmiDataset(BaseDataset):
             obs_dict[f'robot{robot_id}_eef_rot_axis_angle'] = obs_pose[:,3:]
             
         data['action'] = np.concatenate(actions, axis=-1)
+
+        print('Data shape:', data['action'].shape)
         
         torch_data = {
             'obs': dict_apply(obs_dict, torch.from_numpy),

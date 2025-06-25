@@ -37,7 +37,6 @@ class Conv1dBlock(nn.Module):
         )
 
     def forward(self, x):
-        print("DEBUG:", self.block(x))
         return self.block(x)
 
 
