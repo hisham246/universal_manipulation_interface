@@ -3,7 +3,7 @@ defaults:
   - task: vic_umi
 
 name: train_diffusion_unet_timm
-_target_: diffusion_policy.workspace.train_diffusion_unet_image_workspace.TrainDiffusionUnetComplianceWorkspace
+_target_: diffusion_policy.workspace.train_diffusion_unet_compliance_workspace.TrainDiffusionUnetComplianceWorkspace
 
 task_name: ${task.name}
 shape_meta: ${task.shape_meta}
