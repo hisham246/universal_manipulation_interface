@@ -340,6 +340,9 @@ class VicUmiDataset(BaseDataset):
                 obs_dict[f'robot{robot_id}_eef_rot_axis_angle']
             ], axis=-1))
             action_mat = pose_to_mat(data['action'][...,7 * robot_id: 7 * robot_id + 6])
+
+            print(f"pose_mat shape: {pose_mat.shape}")
+            print(f"action_mat shape: {action_mat.shape}")
             
             # solve relative obs
             obs_pose_mat = convert_pose_mat_rep(
@@ -359,6 +362,10 @@ class VicUmiDataset(BaseDataset):
         
             action_stiffness = data['action'][..., 13 * robot_id + 6 : 13 * robot_id + 12]
             action_gripper = data['action'][..., 13 * robot_id + 12 : 13 * robot_id + 13]
+
+            print(f"action_stiffness type: {type(action_stiffness)}")
+            print(f"action_gripper type: {type(action_gripper)}")
+
             actions.append(np.concatenate([action_pose, action_stiffness, action_gripper], axis=-1))
 
             # generate data
