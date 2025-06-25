@@ -343,8 +343,8 @@ class VicUmiDataset(BaseDataset):
             ], axis=-1))
             action_mat = pose_to_mat(data['action'][...,7 * robot_id: 7 * robot_id + 6])
 
-            print(f"pose_mat shape: {pose_mat.shape}")
-            print(f"action_mat shape: {action_mat.shape}")
+            # print(f"pose_mat shape: {pose_mat.shape}")
+            # print(f"action_mat shape: {action_mat.shape}")
             
             # solve relative obs
             obs_pose_mat = convert_pose_mat_rep(
@@ -365,8 +365,8 @@ class VicUmiDataset(BaseDataset):
             action_stiffness = data['action'][..., 13 * robot_id + 6 : 13 * robot_id + 12]
             action_gripper = data['action'][..., 13 * robot_id + 12 : 13 * robot_id + 13]
 
-            print(f"action_stiffness: {action_stiffness.shape}")
-            print(f"action_gripper: {action_gripper.shape}")
+            # print(f"action_stiffness: {action_stiffness.shape}")
+            # print(f"action_gripper: {action_gripper.shape}")
 
             actions.append(np.concatenate([action_pose, action_stiffness, action_gripper], axis=-1))
 
@@ -376,7 +376,7 @@ class VicUmiDataset(BaseDataset):
             
         data['action'] = np.concatenate(actions, axis=-1)
 
-        print('Data shape:', data['action'].shape)
+        # print('Data shape:', data['action'].shape)
         
         torch_data = {
             'obs': dict_apply(obs_dict, torch.from_numpy),
