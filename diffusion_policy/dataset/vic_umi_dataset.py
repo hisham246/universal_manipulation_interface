@@ -257,6 +257,8 @@ class VicUmiDataset(BaseDataset):
             self.threadpool_limits_is_applied = True
         data = self.sampler.sample_sequence(idx)
 
+        print("Data shape:", {key: data[key].shape for key in data.keys()})
+
         obs_dict = dict()
         for key in self.rgb_keys:
             if not key in data:
