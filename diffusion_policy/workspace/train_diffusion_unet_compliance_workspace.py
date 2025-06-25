@@ -31,6 +31,8 @@ from diffusion_policy.model.diffusion.ema_model import EMAModel
 from diffusion_policy.model.common.lr_scheduler import get_scheduler
 from accelerate import Accelerator
 
+# Add comment
+
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
 class TrainDiffusionUnetComplianceWorkspace(BaseWorkspace):
