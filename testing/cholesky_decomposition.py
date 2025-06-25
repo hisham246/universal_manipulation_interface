@@ -5,23 +5,23 @@ A = np.array([[4.0, 0.0, 0.0],
               [0.0, 0.0, 2.0]])
 
 L = np.linalg.cholesky(A)
+U = L.T
 
-chol_vec = np.array([
-    L[0, 0],
-    L[1, 0], L[1, 1],
-    L[2, 0], L[2, 1], L[2, 2]
-])
+chol_vec_upper = np.array([U[0, 0], U[0, 1], U[1, 1], U[0, 2], U[1, 2], U[2, 2]])
 
-def vec_to_chol(chol_vec):
-    L = np.zeros((3, 3))
-    L[0, 0] = chol_vec[0]
-    L[1, 0] = chol_vec[1]
-    L[1, 1] = chol_vec[2]
-    L[2, 0] = chol_vec[3]
-    L[2, 1] = chol_vec[4]
-    L[2, 2] = chol_vec[5]
-    return L
+# Function to convert Cholesky vector back to upper triangular matrix
+def vec_to_chol_upper(chol_vec):
+    U = np.zeros((3, 3))
+    U[0, 0] = chol_vec[0]
+    U[0, 1] = chol_vec[1]
+    U[1, 1] = chol_vec[2]
+    U[0, 2] = chol_vec[3]
+    U[1, 2] = chol_vec[4]
+    U[2, 2] = chol_vec[5]
+    return U
 
-lower = vec_to_chol(chol_vec)
-Kx_pos = lower @ lower.T
-print(Kx_pos)
+# Reconstruct the upper triangular matrix from the vector
+upper = vec_to_chol_upper(chol_vec_upper)
+Kx_pos_upper = upper.T @ upper
+print("Reconstructed matrix from upper triangular Cholesky:")
+print(Kx_pos_upper)

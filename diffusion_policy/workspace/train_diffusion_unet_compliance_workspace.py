@@ -95,6 +95,7 @@ class TrainDiffusionUnetComplianceWorkspace(BaseWorkspace):
         accelerator = Accelerator(log_with='wandb')
         wandb_cfg = OmegaConf.to_container(cfg.logging, resolve=True)
         wandb_cfg.pop('project')
+        wandb_cfg['dir'] = os.path.abspath(os.path.join(os.getcwd(), "../"))
         accelerator.init_trackers(
             project_name=cfg.logging.project,
             config=OmegaConf.to_container(cfg, resolve=True),
