@@ -48,7 +48,7 @@ class DiffusionUnetTimmPolicy(BaseImagePolicy):
         input_dim = action_dim
         global_cond_dim = obs_feature_dim
 
-        print("Input:", input_dim.shape)
+        print("Input:", input_dim)
 
 
         model = ConditionalUnet1D(
