@@ -136,6 +136,7 @@ class VicUmiDataset(BaseDataset):
                 self.sampler_lowdim_keys.append(key)
     
         for key in replay_buffer.keys():
+            print(f"Key: {key}")
             if key.endswith('_demo_start_pose') or key.endswith('_demo_end_pose'):
                 self.sampler_lowdim_keys.append(key)
                 query_key = key.split('_')[0] + '_eef_pos'
