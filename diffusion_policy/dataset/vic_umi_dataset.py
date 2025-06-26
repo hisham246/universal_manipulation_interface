@@ -257,7 +257,7 @@ class VicUmiDataset(BaseDataset):
             self.threadpool_limits_is_applied = True
         data = self.sampler.sample_sequence(idx)
 
-        print("Data shape:", {key: data[key].shape for key in data.keys()})
+        # print("Data shape:", {key: data[key].shape for key in data.keys()})
 
         obs_dict = dict()
         for key in self.rgb_keys:
@@ -334,6 +334,8 @@ class VicUmiDataset(BaseDataset):
         for key in del_keys:
             del obs_dict[key]
 
+        print("Data action:", data['action'])
+
         actions = list()
         for robot_id in range(self.num_robot):
             # convert pose to mat
@@ -362,7 +364,7 @@ class VicUmiDataset(BaseDataset):
             obs_pose = mat_to_pose10d(obs_pose_mat)
             action_pose = mat_to_pose10d(action_pose_mat)
 
-            print("Action data:", data['action'])
+            # print("Action data:", data['action'])
         
             action_stiffness = data['action'][..., 13 * robot_id + 6 : 13 * robot_id + 12]
             action_gripper = data['action'][..., 13 * robot_id + 12 : 13 * robot_id + 13]
