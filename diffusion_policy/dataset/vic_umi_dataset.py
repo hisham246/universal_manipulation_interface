@@ -361,16 +361,18 @@ class VicUmiDataset(BaseDataset):
             # convert pose to pos + rot6d representation
             obs_pose = mat_to_pose10d(obs_pose_mat)
             action_pose = mat_to_pose10d(action_pose_mat)
+
+            print("Action data:", data['action'])
         
             action_stiffness = data['action'][..., 13 * robot_id + 6 : 13 * robot_id + 12]
             action_gripper = data['action'][..., 13 * robot_id + 12 : 13 * robot_id + 13]
 
-            print(f"action_stiffness: {action_stiffness}")
-            print(f"action_gripper: {action_gripper}")
+            # print(f"action_stiffness: {action_stiffness}")
+            # print(f"action_gripper: {action_gripper}")
 
             actions.append(np.concatenate([action_pose, action_stiffness, action_gripper], axis=-1))
 
-            print('Action dimension:', actions[-1].shape)
+            # print('Action dimension:', actions[-1].shape)
 
             # generate data
             obs_dict[f'robot{robot_id}_eef_pos'] = obs_pose[:,:3]
