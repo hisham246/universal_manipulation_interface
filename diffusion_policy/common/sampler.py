@@ -89,6 +89,9 @@ class SequenceSampler:
                 self.replay_buffer[key] = replay_buffer[key][:]
         for key in rgb_keys:
             self.replay_buffer[key] = replay_buffer[key]
+
+        if 'robot0_stiffness' not in self.replay_buffer:
+            self.replay_buffer['robot0_stiffness'] = replay_buffer['robot0_stiffness'][:]
         
         print("Replay buffer keys:", self.replay_buffer.keys())
 
