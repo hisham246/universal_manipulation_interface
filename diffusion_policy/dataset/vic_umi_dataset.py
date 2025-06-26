@@ -365,8 +365,8 @@ class VicUmiDataset(BaseDataset):
             action_stiffness = data['action'][..., 13 * robot_id + 6 : 13 * robot_id + 12]
             action_gripper = data['action'][..., 13 * robot_id + 12 : 13 * robot_id + 13]
 
-            # print(f"action_stiffness: {action_stiffness.shape}")
-            # print(f"action_gripper: {action_gripper.shape}")
+            print(f"action_stiffness: {action_stiffness}")
+            print(f"action_gripper: {action_gripper}")
 
             actions.append(np.concatenate([action_pose, action_stiffness, action_gripper], axis=-1))
 
