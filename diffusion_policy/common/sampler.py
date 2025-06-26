@@ -198,7 +198,7 @@ class SequenceSampler:
             output = np.concatenate([output, padding], axis=0)
         result['action'] = output
 
-        print('Result:', result)
+        # print('Result:', result)
 
         return result
     

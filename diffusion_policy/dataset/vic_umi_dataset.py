@@ -370,6 +370,8 @@ class VicUmiDataset(BaseDataset):
 
             actions.append(np.concatenate([action_pose, action_stiffness, action_gripper], axis=-1))
 
+            print('Action dimension:', actions[-1].shape)
+
             # generate data
             obs_dict[f'robot{robot_id}_eef_pos'] = obs_pose[:,:3]
             obs_dict[f'robot{robot_id}_eef_rot_axis_angle'] = obs_pose[:,3:]
