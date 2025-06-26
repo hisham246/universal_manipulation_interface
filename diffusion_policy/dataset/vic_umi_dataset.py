@@ -136,7 +136,6 @@ class VicUmiDataset(BaseDataset):
                 self.sampler_lowdim_keys.append(key)
     
         for key in replay_buffer.keys():
-            print(f"Key: {key}")
             if key.endswith('_demo_start_pose') or key.endswith('_demo_end_pose'):
                 self.sampler_lowdim_keys.append(key)
                 query_key = key.split('_')[0] + '_eef_pos'
@@ -196,8 +195,6 @@ class VicUmiDataset(BaseDataset):
 
         # enumerate the dataset and save low_dim data
         data_cache = {key: list() for key in self.lowdim_keys + ['action']}
-
-        print("Data cache keys:", data_cache.keys())
         
         self.sampler.ignore_rgb(True)
         dataloader = torch.utils.data.DataLoader(
