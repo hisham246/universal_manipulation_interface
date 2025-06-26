@@ -89,6 +89,7 @@ class SequenceSampler:
         for key in rgb_keys:
             self.replay_buffer[key] = replay_buffer[key]
         
+        print("Replay buffer keys:", self.replay_buffer.keys())
         
         if 'action' in replay_buffer:
             self.replay_buffer['action'] = replay_buffer['action'][:]
