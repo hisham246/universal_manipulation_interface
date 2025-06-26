@@ -60,6 +60,7 @@ class SequenceSampler:
         # load low_dim to memory and keep rgb as compressed zarr array
         self.replay_buffer = dict()
         self.num_robot = 0
+        print("Lowdim keys:", lowdim_keys)
         for key in lowdim_keys:
             if key.endswith('eef_pos'):
                 self.num_robot += 1
@@ -90,7 +91,7 @@ class SequenceSampler:
             self.replay_buffer[key] = replay_buffer[key]
         
         print("Replay buffer keys:", self.replay_buffer.keys())
-        
+
         if 'action' in replay_buffer:
             self.replay_buffer['action'] = replay_buffer['action'][:]
         else:
