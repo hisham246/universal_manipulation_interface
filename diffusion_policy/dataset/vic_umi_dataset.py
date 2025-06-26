@@ -335,7 +335,7 @@ class VicUmiDataset(BaseDataset):
         for key in del_keys:
             del obs_dict[key]
 
-        print("Data action:", data['action'])
+        # print("Data action:", data['action'])
 
         actions = list()
         for robot_id in range(self.num_robot):
