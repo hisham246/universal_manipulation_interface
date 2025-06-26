@@ -198,6 +198,8 @@ class SequenceSampler:
             output = np.concatenate([output, padding], axis=0)
         result['action'] = output
 
+        print('Result:', result)
+
         return result
     
     def ignore_rgb(self, apply=True):
