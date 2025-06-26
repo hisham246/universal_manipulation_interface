@@ -196,6 +196,9 @@ class VicUmiDataset(BaseDataset):
 
         # enumerate the dataset and save low_dim data
         data_cache = {key: list() for key in self.lowdim_keys + ['action']}
+
+        print("Data cache keys:", data_cache.keys())
+        
         self.sampler.ignore_rgb(True)
         dataloader = torch.utils.data.DataLoader(
             dataset=self,
