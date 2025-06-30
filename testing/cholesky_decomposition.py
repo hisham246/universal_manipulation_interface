@@ -23,5 +23,6 @@ def vec_to_chol_upper(chol_vec):
 # Reconstruct the upper triangular matrix from the vector
 upper = vec_to_chol_upper(chol_vec_upper)
 Kx_pos_upper = upper.T @ upper
-print("Reconstructed matrix from upper triangular Cholesky:")
-print(Kx_pos_upper)
+stiffness = np.diag(Kx_pos_upper)
+# print("Reconstructed matrix from upper triangular Cholesky:")
+print(stiffness)

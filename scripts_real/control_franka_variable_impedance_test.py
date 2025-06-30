@@ -6,7 +6,7 @@ import scipy.spatial.transform as st
 from umi.real_world.spacemouse_shared_memory import Spacemouse
 from umi.common.precise_sleep import precise_wait
 from umi.real_world.keystroke_counter import KeystrokeCounter, KeyCode
-from umi.real_world.franka_variable_impedance_controller import FrankaInterpolationController
+from umi.real_world.franka_variable_impedance_controller import FrankaVariableImpedanceController
 from umi.real_world.franka_hand_controller import FrankaHandController
 
 @click.command()
@@ -47,12 +47,12 @@ def main(robot_hostname, frequency, gripper_speed, gripper_force, gripper_port, 
         gripper.start()
 
         with KeystrokeCounter() as key_counter, \
-             FrankaInterpolationController(
+             FrankaVariableImpedanceController(
                  shm_manager=shm_manager,
                  robot_ip=robot_hostname,
                  frequency=100,
-                 Kx_scale=5.0,
-                 Kxd_scale=2.0,
+                 Kx_scale=1.0,
+                 Kxd_scale=1.0,
                  verbose=True  # set to True for feedback
              ) as controller, \
              Spacemouse(shm_manager=shm_manager) as sm:

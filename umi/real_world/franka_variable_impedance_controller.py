@@ -4,13 +4,16 @@ import enum
 import multiprocessing as mp
 from multiprocessing.managers import SharedMemoryManager
 import numpy as np
-
+import torch
+from umi.common.pose_util import pose_to_mat, mat_to_pose
 from umi.shared_memory.shared_memory_queue import (
     SharedMemoryQueue, Empty)
 from umi.shared_memory.shared_memory_ring_buffer import SharedMemoryRingBuffer
 from umi.common.pose_trajectory_interpolator import PoseTrajectoryInterpolator
 from diffusion_policy.common.precise_sleep import precise_wait
 import zerorpc
+import csv
+import pathlib
 
 class Command(enum.Enum):
     STOP = 0
@@ -25,12 +28,14 @@ class FrankaInterface:
         self.server = zerorpc.Client(heartbeat=20)
         self.server.connect(f"tcp://{ip}:{port}")
 
+    def get_robot_state(self):
+        state = self.server.get_robot_state()
+        return state
+
     def get_ee_pose(self):
         data = self.server.get_ee_pose()
-        # print(f"Received data: {data}") 
         pos = np.array(data[:3])
         rot_vec = np.array(data[3:])
-        # print(f"Position: {pos}, Rotation Vector: {rot_vec}")
         return np.concatenate([pos, rot_vec])
     
     def get_joint_positions(self):
@@ -39,6 +44,10 @@ class FrankaInterface:
     def get_joint_velocities(self):
         return np.array(self.server.get_joint_velocities())
 
+    def get_joint_pos_desired(self, pose: np.ndarray):
+        joint_pos_desired, success = self.server.get_joint_pos_desired(pose.tolist())
+        return np.array(joint_pos_desired), success
+    
     def move_to_joint_positions(self, positions: np.ndarray, time_to_go: float):
         self.server.move_to_joint_positions(positions.tolist(), time_to_go)
 
@@ -59,12 +68,12 @@ class FrankaInterface:
             'Kx': Kx.tolist(),
             'Kxd': Kxd.tolist()
         })
-
+    
     def close(self):
         self.server.close()
 
 
-class FrankaInterpolationController(mp.Process):
+class FrankaVariableImpedanceController(mp.Process):
     """
     To ensure sending command to the robot with predictable latency
     this controller need its separate process (due to python GIL)
@@ -82,7 +91,9 @@ class FrankaInterpolationController(mp.Process):
         soft_real_time=False,
         verbose=False,
         get_max_k=None,
-        receive_latency=0.0
+        receive_latency=0.0,
+        output_dir=None,
+        episode_id=None
         ):
         """
         robot_ip: the ip of the middle-layer controller (NUC)
@@ -109,6 +120,11 @@ class FrankaInterpolationController(mp.Process):
         self.soft_real_time = soft_real_time
         self.receive_latency = receive_latency
         self.verbose = verbose
+
+        # Saving
+        self.output_dir = pathlib.Path(output_dir) if output_dir is not None else None
+        self.episode_id = episode_id
+
         # Current impedance gains
         self.curr_Kx = self.Kx.copy()
         self.curr_Kxd = self.Kxd.copy()
@@ -254,6 +270,48 @@ class FrankaInterpolationController(mp.Process):
         # start polymetis interface
         robot = FrankaInterface(self.robot_ip, self.robot_port)
 
+        # Save data
+        if self.output_dir is not None and self.episode_id is not None:
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+
+            robot_state_path_1 = self.output_dir / f"robot_state_1_episode_{self.episode_id}.csv"
+            robot_state_path_2 = self.output_dir / f"robot_state_2_episode_{self.episode_id}.csv"
+            joint_pos_desired_path = self.output_dir / f"joint_pos_desired_episode_{self.episode_id}.csv"
+        else:
+            robot_state_path_1 = pathlib.Path("/tmp/robot_state_1.csv")
+            robot_state_path_2 = pathlib.Path("/tmp/robot_state_2.csv")
+            joint_pos_desired_path = pathlib.Path("/tmp/joint_pos_desired.csv")
+
+        example_state = robot.get_robot_state()
+        csv_fieldnames_1 = []
+        for key, value in example_state.items():
+            if isinstance(value, list) or isinstance(value, np.ndarray):
+                csv_fieldnames_1.extend([f"{key}_{i}" for i in range(len(value))])
+            else:
+                csv_fieldnames_1.append(key)
+
+        with open(robot_state_path_1, mode='w', newline='') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=csv_fieldnames_1)
+            writer.writeheader()
+
+
+        csv_fieldnames_2 = (
+            [f"ee_pose_{i}" for i in range(6)] +
+            [f"joint_pos_{i}" for i in range(7)] +
+            [f"joint_vel_{i}" for i in range(7)]
+        )
+
+        with open(robot_state_path_2, mode='w', newline='') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=csv_fieldnames_2)
+            writer.writeheader()
+
+        csv_fieldnames_3 = [f"joint_pos_desired_{i}" for i in range(7)]
+
+        with open(joint_pos_desired_path, mode='w', newline='') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=csv_fieldnames_3)
+            writer.writeheader()
+        
+
         try:
             if self.verbose:
                 print(f"[FrankaVariableImpedanceController] Connect to robot: {self.robot_ip}")
@@ -297,6 +355,22 @@ class FrankaInterpolationController(mp.Process):
                 # flange_pose = mat_to_pose(pose_to_mat(tip_pose) @ tx_tip_flange)
 
                 ee_pose = pose_interp(t_now)
+
+                # Compute desired joint positions using IK
+                joint_pos_desired, success = robot.get_joint_pos_desired(ee_pose)
+
+                if success:
+                    joint_desired_row = {}
+                    for i in range(7):
+                        joint_desired_row[f"joint_pos_desired_{i}"] = joint_pos_desired[i]
+
+                    with open(joint_pos_desired_path, mode='a', newline='') as csvfile:
+                        writer = csv.DictWriter(csvfile, fieldnames=csv_fieldnames_3)
+                        writer.writerow(joint_desired_row)
+                else:
+                    if self.verbose:
+                        print("[FrankaPositionalController] IK failed. Joint position not logged.")
+
                 # send command to robot
                 robot.update_desired_ee_pose(ee_pose)
 
@@ -304,6 +378,37 @@ class FrankaInterpolationController(mp.Process):
                 state = dict()
                 for key, func_name in self.receive_keys:
                     state[key] = getattr(robot, func_name)()
+
+                robot_state = robot.get_robot_state()
+                flat_state = {}
+                for key, value in robot_state.items():
+                    if isinstance(value, (list, np.ndarray)):
+                        for i, v in enumerate(value):
+                            flat_state[f"{key}_{i}"] = v
+                    else:
+                        flat_state[key] = value
+
+                with open(robot_state_path_1, mode='a', newline='') as csvfile:
+                    writer = csv.DictWriter(csvfile, fieldnames=csv_fieldnames_1)
+                    writer.writerow(flat_state)
+
+
+                # Collect and flatten low-level state
+                ee_pose = state['ActualTCPPose']        # 6D pose
+                joint_pos = state['ActualQ']            # 7D positions
+                joint_vel = state['ActualQd']           # 7D velocities
+
+                lowlevel_row = {}
+                for i in range(6):
+                    lowlevel_row[f"ee_pose_{i}"] = ee_pose[i]
+                for i in range(7):
+                    lowlevel_row[f"joint_pos_{i}"] = joint_pos[i]
+                    lowlevel_row[f"joint_vel_{i}"] = joint_vel[i]
+
+                # Write to low-level CSV
+                with open(robot_state_path_2, mode='a', newline='') as csvfile:
+                    writer = csv.DictWriter(csvfile, fieldnames=csv_fieldnames_2)
+                    writer.writerow(lowlevel_row)
 
                     
                 t_recv = time.time()
@@ -386,7 +491,7 @@ class FrankaInterpolationController(mp.Process):
                 #     print(f"[FrankaVariableImpedanceController] Actual frequency {1/(time.monotonic() - t_now)}")
 
         finally:
-            # manditory cleanup
+            # mandatory cleanup
             # terminate
             print('\n\n\n\nterminate_current_policy\n\n\n\n\n')
             robot.terminate_current_policy()

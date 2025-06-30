@@ -5,7 +5,8 @@ import shutil
 import math
 import cv2
 from multiprocessing.managers import SharedMemoryManager
-from umi.real_world.franka_interpolation_controller import FrankaInterpolationController
+# from umi.real_world.franka_interpolation_controller import FrankaInterpolationController
+from umi.real_world.franka_variable_impedance_controller import FrankaVariableImpedanceController
 from umi.real_world.franka_hand_controller import FrankaHandController
 from umi.real_world.multi_uvc_camera import MultiUvcCamera, VideoRecorder
 from diffusion_policy.common.timestamp_accumulator import (
@@ -23,7 +24,7 @@ from umi.common.usb_util import reset_all_avermedia_devices, get_sorted_v4l_path
 from umi.common.interpolation_util import get_interp1d, PoseInterpolator
 
 
-class UmiEnv:
+class VicUmiEnv:
     def __init__(self, 
             # required params
             output_dir,
@@ -212,7 +213,7 @@ class UmiEnv:
         self.replay_buffer = replay_buffer
         self.episode_id_counter = self.replay_buffer.n_episodes
         
-        robot = FrankaInterpolationController(
+        robot = FrankaVariableImpedanceController(
             shm_manager=shm_manager,
             robot_ip=robot_ip,
             frequency=1000,
@@ -461,10 +462,22 @@ class UmiEnv:
         r_latency = self.robot_action_latency if compensate_latency else 0.0
         # g_latency = self.gripper_action_latency if compensate_latency else 0.0
 
+        Kx_rot = np.array([10.0, 10.0, 10.0])
+
         # schedule waypoints
         for i in range(len(new_actions)):
             r_actions = new_actions[i,:6]
-            g_actions = new_actions[i,6:]
+            g_actions = new_actions[i, 10:]
+
+            Kx_trans = new_actions[i, 6:9]
+            Kx = np.concatenate([Kx_trans, Kx_rot])
+            
+            # Damping gains
+            Kxd = 2 * np.sqrt(Kx)
+
+            # Update the impedance gains with Kx and Kxd
+            self.robot.set_impedance(Kx, Kxd)
+
             self.robot.schedule_waypoint(
                 pose=r_actions,
                 target_time=new_timestamps[i]-r_latency
