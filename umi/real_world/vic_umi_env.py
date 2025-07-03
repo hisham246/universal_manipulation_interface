@@ -468,8 +468,8 @@ class VicUmiEnv:
         # schedule waypoints
         for i in range(len(new_actions)):
             r_actions = new_actions[i,:6]
-            g_actions = new_actions[i, 9:]
-            # g_actions = new_actions[i, 6:]
+            # g_actions = new_actions[i, 9:]
+            g_actions = new_actions[i, 6:]
 
             # Kx_trans = new_actions[i, 6:9]
             # Kx = np.concatenate([Kx_trans, Kx_rot])

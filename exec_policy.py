@@ -107,10 +107,10 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
     # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_transformer_pickplace.ckpt'
 
     # Diffusion UNet
-    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_pickplace_2.ckpt'
+    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_pickplace_2.ckpt'
 
     # Compliance policy unet
-    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_compliance_trial_1.ckpt'
+    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_compliance_trial_1.ckpt'
 
     payload = torch.load(open(ckpt_path, 'rb'), map_location='cpu', pickle_module=dill)
     cfg = payload['cfg']
@@ -232,15 +232,15 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                     lambda x: torch.from_numpy(x).unsqueeze(0).to(device))
                 result = policy.predict_action(obs_dict)
                 action = result['action_pred'][0].detach().to('cpu').numpy()
-                assert action.shape[-1] == 16
-                # assert action.shape[-1] == 10
-                action = get_real_umi_action(action, obs, action_pose_repr)
+                # assert action.shape[-1] == 16
                 assert action.shape[-1] == 10
-                # assert action.shape[-1] == 7
+                action = get_real_umi_action(action, obs, action_pose_repr)
+                # assert action.shape[-1] == 10
+                assert action.shape[-1] == 7
                 del result
 
             print('Ready!')
-            while True:
+            # while True:
                 # # ========= human control loop ==========
                 # print("Human in control!")
                 # state = env.get_robot_state()
@@ -249,7 +249,7 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                 # gripper_target_pos = gripper_state['width']
                 # t_start = time.monotonic()
                 # iter_idx = 0
-                while True:
+            while True:
                 #     # calculate timing
                 #     t_cycle_end = t_start + (iter_idx + 1) * dt
                 #     t_sample = t_cycle_end - command_latency
@@ -304,17 +304,17 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                     # )
                     # cv2.imshow('default', vis_img[...,::-1])
                     # _ = cv2.pollKey()
-                    press_events = key_counter.get_press_events()
-                    start_policy = False
-                    for key_stroke in press_events:
-                        if key_stroke == KeyCode(char='q'):
-                            # Exit program
-                            env.end_episode()
-                            exit(0)
-                        elif key_stroke == KeyCode(char='c'):
-                            # Exit human control loop
-                            # hand control over to the policy
-                            start_policy = True
+                    # press_events = key_counter.get_press_events()
+                    # start_policy = False
+                    # for key_stroke in press_events:
+                    #     if key_stroke == KeyCode(char='q'):
+                    #         # Exit program
+                    #         env.end_episode()
+                    #         exit(0)
+                    #     elif key_stroke == KeyCode(char='c'):
+                    #         # Exit human control loop
+                    #         # hand control over to the policy
+                    #         start_policy = True
                         # elif key_stroke == KeyCode(char='e'):
                         #     # Next episode
                         #     if match_episode is not None:
@@ -341,8 +341,8 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                         #     if click.confirm('Are you sure to drop an episode?'):
                         #         env.drop_episode()
                         #         key_counter.clear()
-                    if start_policy:
-                        break
+                    # if start_policy:
+                    #     break
 
                     # precise_wait(t_sample)
                     # # get teleop command
@@ -425,7 +425,9 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                             raw_action = result['action_pred'][0].detach().to('cpu').numpy()
                             action = get_real_umi_action(raw_action, obs, action_pose_repr)
 
-                            print('Inference latency:', time.time() - s)
+                            print("Actions", action)
+
+                            # print('Inference latency:', time.time() - s)
                             if temporal_ensembling:
                                 for i, a in enumerate(action):
                                     target_step = iter_idx + i
@@ -475,7 +477,7 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                                 timestamps=np.array(action_timestamps),
                                 compensate_latency=True
                             )
-                            print(f"Submitted {len(this_target_poses)} steps of actions.")
+                            # print(f"Submitted {len(this_target_poses)} steps of actions.")
                         else:
                             print("No valid actions to submit.")
 

@@ -39,6 +39,10 @@ class FrankaInterface:
         rot_vec = np.array(data[3:])
         return np.concatenate([pos, rot_vec])
     
+    def get_jacobian(self):
+        jacobian = self.server.get_jacobian()
+        return np.array(jacobian)
+    
     def get_joint_positions(self):
         return np.array(self.server.get_joint_positions())
     
@@ -247,7 +251,7 @@ class FrankaInterpolationController(mp.Process):
             
         # Start Polymetis interface
         robot = FrankaInterface(self.robot_ip, self.robot_port)
-
+        
         if self.output_dir is not None and self.episode_id is not None:
             self.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -335,6 +339,7 @@ class FrankaInterpolationController(mp.Process):
                 # tip_pose = pose_interp(t_now)
                 # flange_pose = mat_to_pose(pose_to_mat(tip_pose) @ tx_tip_flange)
 
+                print("Jacobian:", robot.get_jacobian())
 
                 ee_pose = pose_interp(t_now)
 

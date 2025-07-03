@@ -32,6 +32,10 @@ class FrankaInterface:
         rot_vec = st.Rotation.from_quat(quat_xyzw).as_rotvec()
         return np.concatenate([pos, rot_vec]).tolist()
     
+    def get_jacobian(self):
+        jacobian = self.robot.get_jacobian()
+        return jacobian.numpy()
+    
     def get_joint_positions(self):
         return self.robot.get_joint_positions().numpy().tolist()
     
@@ -89,6 +93,8 @@ class FrankaInterface:
     
     def gripper_grasp(self, speed, force, grasp_width):
         self.gripper.grasp(speed, force, grasp_width)
+
+
 
 s = zerorpc.Server(FrankaInterface())
 s.bind("tcp://0.0.0.0:4242")
