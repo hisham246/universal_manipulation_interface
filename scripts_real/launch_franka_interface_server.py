@@ -33,8 +33,9 @@ class FrankaInterface:
         return np.concatenate([pos, rot_vec]).tolist()
     
     def get_jacobian(self):
-        jacobian = self.robot.get_jacobian()
-        return jacobian.numpy()
+        data = self.robot.get_jacobian()
+        jacobian = data.numpy()
+        return jacobian.tolist()
     
     def get_joint_positions(self):
         return self.robot.get_joint_positions().numpy().tolist()

@@ -425,7 +425,7 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                             raw_action = result['action_pred'][0].detach().to('cpu').numpy()
                             action = get_real_umi_action(raw_action, obs, action_pose_repr)
 
-                            print("Actions", action)
+                            # print("Actions", action)
 
                             # print('Inference latency:', time.time() - s)
                             if temporal_ensembling:
