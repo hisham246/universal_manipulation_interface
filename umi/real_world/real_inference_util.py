@@ -6,26 +6,46 @@ from diffusion_policy.common.pose_repr_util import (
     compute_relative_pose, 
     convert_pose_mat_rep
 )
-from testing.cholesky_decomposition import vec_to_chol_upper
 from umi.common.pose_util import (
     pose_to_mat, mat_to_pose, 
     mat_to_pose10d, pose10d_to_mat)
 from diffusion_policy.model.common.rotation_transformer import \
     RotationTransformer
 
-# Convert Cholesky vector back to diagonal stiffness vector
-def chol_to_stiffness(chol_vec):
-    U = np.zeros((3, 3))
-    U[0, 0] = chol_vec[0]
-    U[0, 1] = chol_vec[1]
-    U[1, 1] = chol_vec[2]
-    U[0, 2] = chol_vec[3]
-    U[1, 2] = chol_vec[4]
-    U[2, 2] = chol_vec[5]
+# # Convert Cholesky vector back to diagonal stiffness vector
+# def chol_to_stiffness(chol_vec):
+#     U = np.zeros((3, 3))
+#     U[0, 0] = chol_vec[0]
+#     U[0, 1] = chol_vec[1]
+#     U[1, 1] = chol_vec[2]
+#     U[0, 2] = chol_vec[3]
+#     U[1, 2] = chol_vec[4]
+#     U[2, 2] = chol_vec[5]
 
-    Kx_matrix = U.T @ U
-    stiffness_vector = np.diag(Kx_matrix)
-    return stiffness_vector
+#     Kx_matrix = U.T @ U
+#     stiffness_vector = np.diag(Kx_matrix)
+#     return stiffness_vector
+
+def chol_to_stiffness(chol_vec):
+    chol_vec = np.asarray(chol_vec)
+    if chol_vec.ndim == 1:
+        chol_vec = chol_vec[None, :]  # shape (1, 6)
+
+    stiffness_list = []
+    for vec in chol_vec:
+        U = np.zeros((3, 3))
+        U[0, 0] = vec[0]
+        U[0, 1] = vec[1]
+        U[1, 1] = vec[2]
+        U[0, 2] = vec[3]
+        U[1, 2] = vec[4]
+        U[2, 2] = vec[5]
+
+        Kx_matrix = U.T @ U
+        stiffness_vector = np.diag(Kx_matrix)
+        stiffness_list.append(stiffness_vector)
+
+    return np.array(stiffness_list)
 
 def get_real_obs_resolution(
         shape_meta: dict
@@ -196,6 +216,7 @@ def get_real_umi_action(
     ):
 
     n_robots = int(action.shape[-1] // 16)
+    # n_robots = int(action.shape[-1] // 10)
     env_action = list()
     for robot_idx in range(n_robots):
         # convert pose to mat
@@ -208,6 +229,10 @@ def get_real_umi_action(
         action_pose10d = action[..., start:start+9]
         action_chol = action[..., start+9:start+15]
         action_grip = action[..., start+15:start+16]
+
+        # start = robot_idx * 10
+        # action_pose10d = action[..., start:start+9]
+        # action_grip = action[..., start+9:start+10]
 
         action_pose_mat = pose10d_to_mat(action_pose10d)
 
@@ -228,5 +253,5 @@ def get_real_umi_action(
         env_action.append(action_stiffness)
         env_action.append(action_grip)
 
-    env_action = np.concatenate(env_action, axis=-1)
-    return env_action
+    act = np.concatenate(env_action, axis=-1)
+    return act

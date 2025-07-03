@@ -82,7 +82,7 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 @click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
 # @click.option('--init_joints', '-j', is_flag=True, default=False, help="Whether to initialize robot joint configuration in the beginning.")
 @click.option('--steps_per_inference', '-si', default= 1, type=int, help="Action horizon for inference.")
-@click.option('--max_duration', '-md', default=30, help='Max duration for each epoch in seconds.')
+@click.option('--max_duration', '-md', default=60, help='Max duration for each epoch in seconds.')
 @click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
 @click.option('--command_latency', '-cl', default=0.01, type=float, help="Latency between receiving SapceMouse command to executing on Robot in Sec.")
 @click.option('-nm', '--no_mirror', is_flag=True, default=False)
@@ -107,7 +107,10 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
     # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_transformer_pickplace.ckpt'
 
     # Diffusion UNet
-    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_pickplace_2.ckpt'
+    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_pickplace_2.ckpt'
+
+    # Compliance policy unet
+    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_compliance_trial_1.ckpt'
 
     payload = torch.load(open(ckpt_path, 'rb'), map_location='cpu', pickle_module=dill)
     cfg = payload['cfg']
@@ -230,8 +233,10 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                 result = policy.predict_action(obs_dict)
                 action = result['action_pred'][0].detach().to('cpu').numpy()
                 assert action.shape[-1] == 16
+                # assert action.shape[-1] == 10
                 action = get_real_umi_action(action, obs, action_pose_repr)
                 assert action.shape[-1] == 10
+                # assert action.shape[-1] == 7
                 del result
 
             print('Ready!')
@@ -419,6 +424,7 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                             result = policy.predict_action(obs_dict)
                             raw_action = result['action_pred'][0].detach().to('cpu').numpy()
                             action = get_real_umi_action(raw_action, obs, action_pose_repr)
+
                             print('Inference latency:', time.time() - s)
                             if temporal_ensembling:
                                 for i, a in enumerate(action):
@@ -435,11 +441,7 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                                                    'ee_pos_2': a[2],
                                                    'ee_rot_0': a[3],
                                                    'ee_rot_1': a[4],
-                                                   'ee_rot_2': a[5],
-                                                   'ee_Kx_0': a[6],
-                                                   'ee_Kx_1': a[7],
-                                                   'ee_Kx_2': a[8]})
-                            # inference_latency = time.time() - s
+                                                   'ee_rot_2': a[5]})
                         
                         action_timestamps = (np.arange(len(action), dtype=np.float64)) * dt + obs_timestamps[-1]
                         
