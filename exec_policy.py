@@ -107,10 +107,10 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
     # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_transformer_pickplace.ckpt'
 
     # Diffusion UNet
-    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_pickplace_2.ckpt'
+    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_pickplace_2.ckpt'
 
     # Compliance policy unet
-    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_compliance_trial_2.ckpt'
+    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_compliance_trial_2.ckpt'
 
     payload = torch.load(open(ckpt_path, 'rb'), map_location='cpu', pickle_module=dill)
     cfg = payload['cfg']
@@ -232,11 +232,11 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                     lambda x: torch.from_numpy(x).unsqueeze(0).to(device))
                 result = policy.predict_action(obs_dict)
                 action = result['action_pred'][0].detach().to('cpu').numpy()
-                # assert action.shape[-1] == 16
-                assert action.shape[-1] == 10
-                action = get_real_umi_action(action, obs, action_pose_repr)
+                assert action.shape[-1] == 16
                 # assert action.shape[-1] == 10
-                assert action.shape[-1] == 7
+                action = get_real_umi_action(action, obs, action_pose_repr)
+                assert action.shape[-1] == 10
+                # assert action.shape[-1] == 7
                 del result
 
             print('Ready!')
@@ -444,7 +444,18 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                                                    'ee_rot_0': a[3],
                                                    'ee_rot_1': a[4],
                                                    'ee_rot_2': a[5]})
-                        
+                                
+                                action_log.append({'timestamp': t, 
+                                                   'ee_pos_0': a[0],
+                                                   'ee_pos_1': a[1],
+                                                   'ee_pos_2': a[2],
+                                                   'ee_rot_0': a[3],
+                                                   'ee_rot_1': a[4],
+                                                   'ee_rot_2': a[5],
+                                                   'ee_Kx_0': a[6],
+                                                   'ee_Kx_1': a[7],
+                                                   'ee_Kx_2': a[8]})
+
                         action_timestamps = (np.arange(len(action), dtype=np.float64)) * dt + obs_timestamps[-1]
                         
                         if temporal_ensembling:
