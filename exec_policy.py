@@ -110,7 +110,7 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
     ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_pickplace_2.ckpt'
 
     # Compliance policy unet
-    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_compliance_trial_1.ckpt'
+    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_compliance_trial_2.ckpt'
 
     payload = torch.load(open(ckpt_path, 'rb'), map_location='cpu', pickle_module=dill)
     cfg = payload['cfg']
@@ -427,7 +427,7 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
 
                             # print("Actions", action)
 
-                            # print('Inference latency:', time.time() - s)
+                            print('Inference latency:', time.time() - s)
                             if temporal_ensembling:
                                 for i, a in enumerate(action):
                                     target_step = iter_idx + i
