@@ -5,6 +5,7 @@ import shutil
 import math
 import cv2
 from multiprocessing.managers import SharedMemoryManager
+# from umi.real_world.franka_interpolation_controller import FrankaInterpolationController
 from umi.real_world.franka_variable_impedance_controller import FrankaVariableImpedanceController
 from umi.real_world.franka_hand_controller import FrankaHandController
 from umi.real_world.multi_uvc_camera import MultiUvcCamera, VideoRecorder
@@ -188,6 +189,10 @@ class VicUmiEnv:
                 return data
             vis_transform.append(vis_tf)
 
+        # camera = UvcCamera(shm_manager=shm_manager,
+        #               dev_video_path=dev_video_path,
+        #               resolution=resolution[0])
+
         camera = MultiUvcCamera(
             dev_video_paths=v4l_paths,
             shm_manager=shm_manager,
@@ -317,6 +322,11 @@ class VicUmiEnv:
             self.camera_obs_horizon * self.camera_down_sample_steps \
             * (60 / self.frequency))
         
+        # for i, cam in self.camera.cameras.items():
+        #     if cam.ring_buffer.count < k:
+        #         print(f"[Warning] Camera has only {cam.ring_buffer.count} frames, waiting for at least {k}")
+        #         time.sleep(0.5)
+        # print("K:", k)
         self.last_camera_data = self.camera.get(
             k=k, 
             out=self.last_camera_data)
@@ -329,6 +339,23 @@ class VicUmiEnv:
         last_gripper_data = self.gripper.get_all_state()
         last_timestamp = self.last_camera_data[0]['timestamp'][-1]
         dt = 1 / self.frequency
+
+        # # align camera obs timestamps
+        # camera_obs_timestamps = last_timestamp - (
+        #     np.arange(self.camera_obs_horizon)[::-1] * self.camera_down_sample_steps * dt)
+        # camera_obs = dict()
+        # for camera_idx, value in self.last_camera_data.items():
+        #     this_timestamps = value['timestamp']
+        #     this_idxs = list()
+        #     for t in camera_obs_timestamps:
+        #         nn_idx = np.argmin(np.abs(this_timestamps - t))
+        #         this_idxs.append(nn_idx)
+        #     # remap key
+        #     if camera_idx == 0 and self.mirror_crop:
+        #         camera_obs['camera0_rgb'] = value['color'][...,:3][this_idxs]
+        #         camera_obs['camera0_rgb_mirror_crop'] = value['color'][...,3:][this_idxs]
+        #     else:
+        #         camera_obs[f'camera{camera_idx}_rgb'] = value['color'][this_idxs]
 
         # align camera obs timestamps
         camera_obs_timestamps = last_timestamp - (
@@ -343,6 +370,25 @@ class VicUmiEnv:
             camera_obs['camera0_rgb_mirror_crop'] = self.last_camera_data[0]['color'][...,3:][this_idxs]
         else:
             camera_obs['camera0_rgb'] = self.last_camera_data[0]['color'][this_idxs]
+
+        # # align camera obs timestamps
+        # camera_obs_timestamps = last_timestamp - (
+        #     np.arange(self.camera_obs_horizon)[::-1] * self.camera_down_sample_steps * dt)
+        
+        # camera_obs = dict()
+        # this_timestamps = self.last_camera_data['timestamp']
+        # this_idxs = [np.argmin(np.abs(this_timestamps - t)) for t in camera_obs_timestamps]
+
+        # this_idxs = list()
+        # for t in camera_obs_timestamps:
+        #     nn_idx = np.argmin(np.abs(this_timestamps - t))
+        #     this_idxs.append(nn_idx)
+
+        # if self.mirror_crop:
+        #     camera_obs['camera0_rgb'] = self.last_camera_data['color'][...,:3][this_idxs]
+        #     camera_obs['camera0_rgb_mirror_crop'] = self.last_camera_data['color'][...,3:][this_idxs]
+        # else:
+        #     camera_obs['camera0_rgb'] = self.last_camera_data['color'][this_idxs]
 
         # align robot obs
         robot_obs_timestamps = last_timestamp - (
@@ -367,7 +413,6 @@ class VicUmiEnv:
         #     t=np.array(last_gripper_data['gripper_timestamp']),
         #     x=np.array(last_gripper_data['gripper_position'])[..., None]
         # )
-
         x = np.array(last_gripper_data['gripper_position'])[-1]
         gripper_obs = {
             'robot0_gripper_width': np.repeat([[x]], self.gripper_obs_horizon, axis=0)
@@ -533,6 +578,20 @@ class VicUmiEnv:
                 )
                 episode['robot0_joint_pos'] = joint_pos_interpolator(timestamps)
                 episode['robot0_joint_vel'] = joint_vel_interpolator(timestamps)
+
+                # # Store raw observations (no interpolation)
+                # episode['robot0_eef_pos_raw_timestamps'] = np.array(self.obs_accumulator.timestamps['robot0_eef_pose'])
+                # episode['robot0_eef_pos_raw'] = np.array(self.obs_accumulator.data['robot0_eef_pose'])
+                # episode['robot0_joint_pos_raw_timestamps'] = np.array(self.obs_accumulator.timestamps['robot0_joint_pos'])
+                # episode['robot0_joint_pos_raw'] = np.array(self.obs_accumulator.data['robot0_joint_pos'])
+                # episode['robot0_joint_vel_raw_timestamps'] = np.array(self.obs_accumulator.timestamps['robot0_joint_vel'])
+                # episode['robot0_joint_vel_raw'] = np.array(self.obs_accumulator.data['robot0_joint_vel'])
+
+                # gripper_interpolator = get_interp1d(
+                #     t=np.array(self.obs_accumulator.timestamps['robot0_gripper_width']),
+                #     x=np.array(self.obs_accumulator.data['robot0_gripper_width'])
+                # )
+                # episode['robot0_gripper_width'] = gripper_interpolator(timestamps)
 
                 gripper_ts = np.array(self.obs_accumulator.timestamps['robot0_gripper_width'])
                 gripper_data = np.array(self.obs_accumulator.data['robot0_gripper_width'])

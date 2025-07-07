@@ -145,7 +145,7 @@ class FrankaVariableImpedanceController(mp.Process):
         input_queue = SharedMemoryQueue.create_from_examples(
             shm_manager=shm_manager,
             examples=example,
-            buffer_size=512
+            buffer_size=256
         )
 
         # build ring buffer

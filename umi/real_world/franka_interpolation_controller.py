@@ -58,9 +58,9 @@ class FrankaInterface:
             Kxd.tolist()
         )
 
-    # def get_joint_pos_desired(self, pose: np.ndarray):
-    #     joint_pos_desired, success = self.server.get_joint_pos_desired(pose.tolist())
-    #     return np.array(joint_pos_desired), success
+    def get_joint_pos_desired(self, pose: np.ndarray):
+        joint_pos_desired, success = self.server.get_joint_pos_desired(pose.tolist())
+        return np.array(joint_pos_desired), success
     
     def update_desired_ee_pose(self, pose: np.ndarray):
         self.server.update_desired_ee_pose(pose.tolist())
@@ -290,12 +290,12 @@ class FrankaInterpolationController(mp.Process):
             writer = csv.DictWriter(csvfile, fieldnames=csv_fieldnames_2)
             writer.writeheader()
 
-        # csv_fieldnames_3 = [f"joint_pos_desired_{i}" for i in range(7)]
+        csv_fieldnames_3 = [f"joint_pos_desired_{i}" for i in range(7)]
 
-        # # Write header once
-        # with open(joint_pos_desired_path, mode='w', newline='') as csvfile:
-        #     writer = csv.DictWriter(csvfile, fieldnames=csv_fieldnames_3)
-        #     writer.writeheader()
+        # Write header once
+        with open(joint_pos_desired_path, mode='w', newline='') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=csv_fieldnames_3)
+            writer.writeheader()
         
         try:
             if self.verbose:
@@ -343,20 +343,20 @@ class FrankaInterpolationController(mp.Process):
 
                 ee_pose = pose_interp(t_now)
 
-                # # Compute desired joint positions using IK
-                # joint_pos_desired, success = robot.get_joint_pos_desired(ee_pose)
+                # Compute desired joint positions using IK
+                joint_pos_desired, success = robot.get_joint_pos_desired(ee_pose)
 
-                # if success:
-                #     joint_desired_row = {}
-                #     for i in range(7):
-                #         joint_desired_row[f"joint_pos_desired_{i}"] = joint_pos_desired[i]
+                if success:
+                    joint_desired_row = {}
+                    for i in range(7):
+                        joint_desired_row[f"joint_pos_desired_{i}"] = joint_pos_desired[i]
 
-                #     with open(joint_pos_desired_path, mode='a', newline='') as csvfile:
-                #         writer = csv.DictWriter(csvfile, fieldnames=csv_fieldnames_3)
-                #         writer.writerow(joint_desired_row)
-                # else:
-                #     if self.verbose:
-                #         print("[FrankaPositionalController] IK failed. Joint position not logged.")
+                    with open(joint_pos_desired_path, mode='a', newline='') as csvfile:
+                        writer = csv.DictWriter(csvfile, fieldnames=csv_fieldnames_3)
+                        writer.writerow(joint_desired_row)
+                else:
+                    if self.verbose:
+                        print("[FrankaPositionalController] IK failed. Joint position not logged.")
 
   
                 # send command to robot

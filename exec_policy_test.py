@@ -240,8 +240,142 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                 del result
 
             print('Ready!')
-
+            # while True:
+                # # ========= human control loop ==========
+                # print("Human in control!")
+                # state = env.get_robot_state()
+                # target_pose = state['ActualTCPPose']
+                # gripper_state = env.gripper.get_state()
+                # gripper_target_pos = gripper_state['width']
+                # t_start = time.monotonic()
+                # iter_idx = 0
             while True:
+                #     # calculate timing
+                #     t_cycle_end = t_start + (iter_idx + 1) * dt
+                #     t_sample = t_cycle_end - command_latency
+                #     t_command_target = t_cycle_end + dt
+
+                #     # pump obs
+                #     obs = env.get_obs()
+                #     episode_id = env.replay_buffer.n_episodes
+                #     match_episode_id = episode_id
+
+                    # # visualize
+                    # vis_img = obs[f'camera{match_camera}_rgb'][-1]
+                    # match_episode_id = episode_id
+                    # if match_episode is not None:
+                    #     match_episode_id = match_episode
+                    # if match_episode_id in episode_first_frame_map:
+                    #     match_img = episode_first_frame_map[match_episode_id]
+                    #     ih, iw, _ = match_img.shape
+                    #     oh, ow, _ = vis_img.shape
+                    #     tf = get_image_transform(
+                    #         input_res=(iw, ih), 
+                    #         output_res=(ow, oh), 
+                    #         bgr_to_rgb=False)
+                    #     match_img = tf(match_img).astype(np.float32) / 255
+                    #     vis_img = (vis_img + match_img) / 2
+                    # obs_img = obs['camera0_rgb'][-1]
+                    # if mirror_crop:
+                    #     crop_img = obs['camera0_rgb_mirror_crop'][-1]
+                    #     vis_img = np.concatenate([obs_img, crop_img, vis_img], axis=1)
+                    # else:
+                    #     vis_img = np.concatenate([obs_img, vis_img], axis=1)
+                    
+                    # text = f'Episode: {episode_id}'
+                    # cv2.putText(
+                    #     vis_img,
+                    #     text,
+                    #     (10,20),
+                    #     fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                    #     fontScale=0.5,
+                    #     lineType=cv2.LINE_AA,
+                    #     thickness=3,
+                    #     color=(0,0,0)
+                    # )
+                    # cv2.putText(
+                    #     vis_img,
+                    #     text,
+                    #     (10,20),
+                    #     fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                    #     fontScale=0.5,
+                    #     thickness=1,
+                    #     color=(255,255,255)
+                    # )
+                    # cv2.imshow('default', vis_img[...,::-1])
+                    # _ = cv2.pollKey()
+                    # press_events = key_counter.get_press_events()
+                    # start_policy = False
+                    # for key_stroke in press_events:
+                    #     if key_stroke == KeyCode(char='q'):
+                    #         # Exit program
+                    #         env.end_episode()
+                    #         exit(0)
+                    #     elif key_stroke == KeyCode(char='c'):
+                    #         # Exit human control loop
+                    #         # hand control over to the policy
+                    #         start_policy = True
+                        # elif key_stroke == KeyCode(char='e'):
+                        #     # Next episode
+                        #     if match_episode is not None:
+                        #         match_episode = min(match_episode + 1, env.replay_buffer.n_episodes-1)
+                        # elif key_stroke == KeyCode(char='w'):
+                        #     # Prev episode
+                        #     if match_episode is not None:
+                        #         match_episode = max(match_episode - 1, 0)
+                        # elif key_stroke == KeyCode(char='m'):
+                        #     # move the robot
+                        #     duration = 3.0
+                        #     ep = match_replay_buffer.get_episode(match_episode_id)
+                        #     pos = ep['robot0_eef_pos'][0]
+                        #     rot = ep['robot0_eef_rot_axis_angle'][0]
+                        #     grip = ep['robot0_gripper_width'][0]
+                        #     start_pose = np.concatenate([pos, rot])
+                        #     start_grip = grip[0]
+                        #     env.robot.servoL(start_pose, duration=duration)
+                        #     env.gripper.schedule_waypoint(start_grip, target_time=time.time() + duration)
+                        #     time.sleep(duration)
+                        #     target_pose = start_pose
+                        #     gripper_target_pos = start_grip
+                        # elif key_stroke == Key.backspace:
+                        #     if click.confirm('Are you sure to drop an episode?'):
+                        #         env.drop_episode()
+                        #         key_counter.clear()
+                    # if start_policy:
+                    #     break
+
+                    # precise_wait(t_sample)
+                    # # get teleop command
+                    # sm_state = sm.get_motion_state_transformed()
+                    # # print(sm_state)
+                    # dpos = sm_state[:3] * (0.5 / frequency)
+                    # drot_xyz = sm_state[3:] * (1.5 / frequency)
+
+                    # drot = st.Rotation.from_euler('xyz', drot_xyz)
+                    # target_pose[:3] += dpos
+                    # target_pose[3:] = (drot * st.Rotation.from_rotvec(
+                    #     target_pose[3:])).as_rotvec()
+                    # target_pose[2] = np.maximum(target_pose[2], 0.055)
+                    
+                    # dpos = 0
+                    # if sm.is_button_pressed(0):
+                    #     # close gripper
+                    #     dpos = -gripper_speed / frequency
+                    # if sm.is_button_pressed(1):
+                    #     dpos = gripper_speed / frequency
+                    # gripper_target_pos = np.clip(gripper_target_pos + dpos, 0, max_gripper_width)
+
+                    # action = np.zeros((7,))
+                    # action[:6] = target_pose
+                    # action[-1] = gripper_target_pos     
+
+                    # # execute teleop command
+                    # env.exec_actions(
+                    #     actions=[action], 
+                    #     timestamps=[t_command_target-time.monotonic()+time.time()],
+                    #     compensate_latency=False)
+                    # precise_wait(t_cycle_end)
+                    # iter_idx += 1
                 
                 # ========== policy control loop ==============
                 try:
@@ -358,6 +492,62 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                         else:
                             print("No valid actions to submit.")
 
+                        # # convert policy action to env actions
+                        # this_target_poses = action
+                        # # this_target_poses[:,2] = np.maximum(this_target_poses[:,2], 0.055)
+
+                        # # deal with timing
+                        # # the same step actions are always the target for
+                        # # the next step, so we can just use the last one
+                        # action_timestamps = (np.arange(len(action), dtype=np.float64)
+                        #     ) * dt + obs_timestamps[-1]
+                        
+                        # # dt_list = np.array([dt, dt, 3 * dt, dt, dt, dt, dt, dt])
+                        # # action_timestamps = np.cumsum(dt_list) - dt_list[0] + obs_timestamps[-1]
+                        
+                        # action_exec_latency = 0.01
+
+                        # # base_time = max(obs_timestamps[-1] + 2 * dt, time.time() + action_exec_latency)
+                        # # action_timestamps = base_time + np.arange(len(action), dtype=np.float64) * dt
+                        
+                        # curr_time = time.time()
+                        # is_new = action_timestamps > (curr_time + action_exec_latency)
+                        # print("Is New:", is_new)
+                        # if np.sum(is_new) == 0:
+                        #     # exceeded time budget but still do something
+                        #     this_target_poses = this_target_poses[[-1]]
+                        #     # schedule on next available step
+                        #     next_step_idx = int(np.ceil((curr_time - eval_t_start) / dt))
+                        #     action_timestamp = eval_t_start + (next_step_idx) * dt
+                        #     # print('Over budget', action_timestamp - curr_time)
+                        #     action_timestamps = np.array([action_timestamp])
+                        # else:
+                        #     this_target_poses = this_target_poses[is_new]
+                        #     action_timestamps = action_timestamps[is_new]
+
+                        # base_time = obs_timestamps[-1]  # this is when the observation was taken
+                        # target_start_time = base_time + dt  # start actions after next dt
+                        # # Schedule steps_per_inference actions at future dt intervals
+                        # action_timestamps = target_start_time + (np.arange(len(action), dtype=np.float64)) * dt
+                        # Filter out timestamps that are already too late to execute
+                        # curr_time = time.time()
+                        # action_exec_latency = 0.01
+                        # is_new = action_timestamps > (curr_time + action_exec_latency)
+                        # this_target_poses = this_target_poses[is_new]
+                        # action_timestamps = action_timestamps[is_new]
+
+                        # # If all are too late, fallback to sending one action
+                        # if len(action_timestamps) == 0:
+                        #     this_target_poses = this_target_poses[[-1]] if len(this_target_poses) > 0 else np.zeros((1, 7))
+                        #     action_timestamps = np.array([curr_time + 0.01])
+
+                        # # execute actions
+                        # env.exec_actions(
+                        #     actions=this_target_poses,
+                        #     timestamps=action_timestamps,
+                        #     compensate_latency=True
+                        # )      
+                        # print(f"Submitted {len(this_target_poses)} steps of actions.")          
 
                         # visualize
                         episode_id = env.replay_buffer.n_episodes

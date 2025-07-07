@@ -2,7 +2,7 @@ import zarr
 import pandas as pd
 import numpy as np
 import sys
-sys.path.append('/home/hisham246/uwaterloo/universal_manipulation_interface')
+# sys.path.append('/home/hisham246/uwaterloo/universal_manipulation_interface')
 from diffusion_policy.codecs.imagecodecs_numcodecs import register_codecs, JpegXl
 import os
 
@@ -10,8 +10,8 @@ import os
 register_codecs()
 
 # Open the Zarr dataset
-zarr_path = "/home/hisham246/uwaterloo/umi/pickplace_trial_2/pickplace_trial_2.zarr"
-csv_dir = "/home/hisham246/uwaterloo/umi/pickplace_trial_2/csv"
+zarr_path = "/home/hisham246/uwaterloo/wiping_variable_impedance/replay_buffer.zarr"
+csv_dir = "/home/hisham246/uwaterloo/wiping_variable_impedance/csv"
 
 os.makedirs(csv_dir, exist_ok=True)
 root = zarr.open(zarr_path)
@@ -21,7 +21,6 @@ episode_ends = root['meta']['episode_ends'][:]
 episode_starts = np.concatenate(([0], episode_ends[:-1]))
 
 # List of data arrays to extract
-# data_keys = ["timestamp", "action", "robot0_eef_pos", "robot0_eef_rot_axis_angle", "robot0_joint_pos", "robot0_joint_vel"]
 data_keys = ["timestamp", "action", "robot0_eef_pos", "robot0_eef_rot_axis_angle", "robot0_joint_pos", "robot0_joint_vel"]
 
 
