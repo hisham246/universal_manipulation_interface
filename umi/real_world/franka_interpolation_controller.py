@@ -415,6 +415,7 @@ class FrankaInterpolationController(mp.Process):
                     # n_cmd = len(commands['cmd'])
                     # process at most 1 command per cycle to maintain frequency
                     commands = self.input_queue.get_k(1)
+                    # print("[Robot] Received commands:", commands)
                     n_cmd = len(commands['cmd'])
                 except Empty:
                     n_cmd = 0
@@ -425,8 +426,11 @@ class FrankaInterpolationController(mp.Process):
                     for key, value in commands.items():
                         command[key] = value[i]
                     cmd = command['cmd']
+                    # print("command", cmd)
 
                     if cmd == Command.STOP.value:
+                        print("i", i)
+                        print("iter idx", iter_idx)
                         keep_running = False
                         # stop immediately, ignore later commands
                         break

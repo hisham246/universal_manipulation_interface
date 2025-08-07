@@ -5,7 +5,9 @@ import shutil
 import math
 import cv2
 from multiprocessing.managers import SharedMemoryManager
-from umi.real_world.franka_variable_impedance_controller import FrankaVariableImpedanceController
+# from umi.real_world.franka_variable_impedance_controller import FrankaVariableImpedanceController
+from umi.real_world.franka_interpolation_controller import FrankaInterpolationController
+
 from umi.real_world.franka_hand_controller import FrankaHandController
 from umi.real_world.multi_uvc_camera import MultiUvcCamera, VideoRecorder
 from diffusion_policy.common.timestamp_accumulator import (
@@ -208,7 +210,7 @@ class VicUmiEnv:
         self.replay_buffer = replay_buffer
         self.episode_id_counter = self.replay_buffer.n_episodes
         
-        robot = FrankaVariableImpedanceController(
+        robot = FrankaInterpolationController(
             shm_manager=shm_manager,
             robot_ip=robot_ip,
             frequency=1000,
@@ -418,22 +420,22 @@ class VicUmiEnv:
         # g_latency = self.gripper_action_latency if compensate_latency else 0.0
 
         # Kx_trans = np.array([1000.0, 1000.0, 1000.0])
-        Kx_rot = np.array([30.0, 30.0, 30.0])
+        # Kx_rot = np.array([30.0, 30.0, 30.0])
 
         # schedule waypoints
         for i in range(len(new_actions)):
             r_actions = new_actions[i,:6]
-            g_actions = new_actions[i, 9:]
-            # g_actions = new_actions[i, 6:]
+            # g_actions = new_actions[i, 9:]
+            g_actions = new_actions[i, 6:]
 
-            Kx_trans = new_actions[i, 6:9]
-            Kx = np.concatenate([Kx_trans, Kx_rot])
+            # Kx_trans = new_actions[i, 6:9]
+            # Kx = np.concatenate([Kx_trans, Kx_rot])
             
             # Damping gains
-            Kxd = 2 * 0.707 * np.sqrt(Kx)
+            # Kxd = 2 * 0.707 * np.sqrt(Kx)
 
             # Update the impedance gains with Kx and Kxd
-            self.robot.set_impedance(Kx, Kxd)
+            # self.robot.set_impedance(Kx, Kxd)
 
             self.robot.schedule_waypoint(
                 pose=r_actions,
