@@ -7,8 +7,9 @@ import os
 register_codecs()
 
 # Open the zarr dataset
-zarr_path = "/home/hisham246/uwaterloo/umi/surface_wiping_trial_1/dataset_stiffness.zarr.zip"
-csv_path = "/home/hisham246/uwaterloo/umi/surface_wiping_trial_1/pos_stiffness_csv/"
+# zarr_path = "/home/hisham246/uwaterloo/umi/surface_wiping_trial_1/dataset_stiffness.zarr.zip"
+zarr_path = "/home/hisham246/uwaterloo/umi/430_demos/dataset.zarr.zip"
+csv_path = "/home/hisham246/uwaterloo/umi/430_demos/csv/"
 os.makedirs(csv_path, exist_ok=True)
 root = zarr.open(zarr_path)
 
@@ -19,7 +20,9 @@ episode_ends = root['meta']['episode_ends'][:]
 episode_starts = np.concatenate(([0], episode_ends[:-1]))
 
 # List of data arrays to extract
-data_keys = ["timestamp", "robot0_eef_pos", "robot0_eef_rot_axis_angle", "robot0_stiffness"]
+# data_keys = ["timestamp", "robot0_eef_pos", "robot0_eef_rot_axis_angle", "robot0_stiffness"]
+data_keys = ["timestamp", "robot0_eef_pos", "robot0_eef_rot_axis_angle"]
+
 
 # Iterate over episodes and extract data
 for i, (start, end) in enumerate(zip(episode_starts, episode_ends)):

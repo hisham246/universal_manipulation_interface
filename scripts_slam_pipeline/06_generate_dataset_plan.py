@@ -208,6 +208,7 @@ def main(input, output, tcp_offset, tx_slam_tag,
     video_meta_df = pd.DataFrame(data=rows)
 
 
+    # ------ Calibration-------
     # # %% stage 2
     # # match videos into demos
     # # output:
