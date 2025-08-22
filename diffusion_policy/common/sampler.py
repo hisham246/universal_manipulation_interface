@@ -89,8 +89,8 @@ class SequenceSampler:
         for key in rgb_keys:
             self.replay_buffer[key] = replay_buffer[key]
 
-        if 'robot0_stiffness' not in self.replay_buffer:
-            self.replay_buffer['robot0_stiffness'] = replay_buffer['robot0_stiffness'][:]
+        # if 'robot0_stiffness' not in self.replay_buffer:
+        #     self.replay_buffer['robot0_stiffness'] = replay_buffer['robot0_stiffness'][:]
         
         if 'action' in replay_buffer:
             self.replay_buffer['action'] = replay_buffer['action'][:]
@@ -98,7 +98,7 @@ class SequenceSampler:
             # construct action (concatenation of [eef_pos, eef_rot, gripper_width])
             actions = list()
             for robot_idx in range(self.num_robot):
-                for cat in ['eef_pos', 'eef_rot_axis_angle', 'stiffness', 'gripper_width']:
+                for cat in ['eef_pos', 'eef_rot_axis_angle', 'gripper_width']:
                     key = f'robot{robot_idx}_{cat}'
                     if key in self.replay_buffer:
                         actions.append(self.replay_buffer[key])
