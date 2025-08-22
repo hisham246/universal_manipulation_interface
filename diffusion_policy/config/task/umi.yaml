@@ -83,7 +83,7 @@ shape_meta: &shape_meta
     rotation_rep: rotation_6d
 
 task_name: &task_name umi
-dataset_path: /home/hisham246/uwaterloo/umi/pickplace_trial_2/pickplace_trial_2.zarr.zip
+dataset_path: /home/h2khalil/vic_umi/VIC-UMI_Train_Data/surface_wiping_tp.zarr.zip
 pose_repr: &pose_repr
   obs_pose_repr: relative # abs or rel
   action_pose_repr: relative # abs or rel or delta
