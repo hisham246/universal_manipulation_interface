@@ -34,6 +34,7 @@ import time
 from multiprocessing.managers import SharedMemoryManager
 
 from moviepy.editor import VideoFileClip
+from scipy.spatial.transform import Rotation as R
 import av
 import click
 import cv2
@@ -65,6 +66,65 @@ from umi.real_world.real_inference_util import (get_real_obs_resolution,
 from umi.real_world.spacemouse_shared_memory import Spacemouse
 import pandas as pd
 
+# ---- quat utilities ----
+def _q_norm(q): return q / (np.linalg.norm(q) + 1e-12)
+def _q_conj(q): return np.array([-q[0], -q[1], -q[2], q[3]])
+def _q_mul(a,b):
+    x1,y1,z1,w1 = a; x2,y2,z2,w2 = b
+    return np.array([
+        w1*x2 + x1*w2 + y1*z2 - z1*y2,
+        w1*y2 - x1*z2 + y1*w2 + z1*x2,
+        w1*z2 + x1*y2 - y1*x2 + z1*w2,
+        w1*w2 - x1*x2 - y1*y2 - z1*z2
+    ])
+def _slerp(q0,q1,t):
+    q0=_q_norm(q0); q1=_q_norm(q1)
+    if np.dot(q0,q1) < 0: q1 = -q1
+    d = np.clip(np.dot(q0,q1), -1.0, 1.0)
+    if d > 0.9995:
+        out = _q_norm(q0 + t*(q1-q0))
+    else:
+        th = np.arccos(d)
+        out = (np.sin((1-t)*th)*q0 + np.sin(t*th)*q1)/np.sin(th)
+    return _q_norm(out)
+def _geo_angle(q0,q1):
+    d = np.clip(abs(np.dot(_q_norm(q0), _q_norm(q1))), -1.0, 1.0)
+    return 2.0*np.arccos(d)  # [0, pi]
+
+# ---- geodesic mean around a reference quaternion ----
+def _weighted_mean_quats_around(q_ref, quats, weights):
+    # map each quat to tangent at q_ref, average, exp back
+    vecs = []
+    for q in quats:
+        if np.dot(q, q_ref) < 0: q = -q
+        q_err = _q_mul(_q_conj(q_ref), q)
+        rotvec = R.from_quat(q_err).as_rotvec()
+        vecs.append(rotvec)
+    vbar = np.average(np.stack(vecs, 0), axis=0, weights=weights)
+    q_delta = R.from_rotvec(vbar).as_quat()
+    return _q_mul(q_ref, q_delta)
+
+# ---- SE(3) step limiter ----
+def _limit_se3_step(p_prev, q_prev, p_cmd, q_cmd, v_max, w_max, dt):
+    # translation
+    dp = p_cmd - p_prev
+    n = np.linalg.norm(dp)
+    max_dp = v_max * dt
+    if n > max_dp:
+        dp *= (max_dp / (n + 1e-12))
+    p_new = p_prev + dp
+    # rotation
+    ang = _geo_angle(q_prev, q_cmd)
+    max_dang = w_max * dt
+    if ang > max_dang + 1e-9:
+        t = max_dang / ang
+        q_new = _slerp(q_prev, q_cmd, t)
+    else:
+        # keep hemisphere continuity
+        q_new = q_cmd if np.dot(q_prev, q_cmd) >= 0 else -q_cmd
+    return p_new, _q_norm(q_new)
+
+
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
 @click.command()
@@ -93,6 +153,7 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 @click.option('--mirror_swap', is_flag=True, default=False)
 @click.option('--temporal_ensembling', is_flag=True, default=True, help='Enable temporal ensembling for inference.')
 
+
 def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
     match_dataset, match_episode, match_camera,
     vis_camera_idx, 
@@ -100,6 +161,8 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
     frequency, command_latency, 
     no_mirror, sim_fov, camera_intrinsics, 
     mirror_crop, mirror_swap, temporal_ensembling):
+
+    ENSEMBLE_MAX_CANDS = 6
 
     max_gripper_width = 0.1
 
@@ -223,6 +286,13 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                     obs[f'robot0_eef_pos'],
                     obs[f'robot0_eef_rot_axis_angle']
                 ], axis=-1)[-1]
+            
+            # SE(3) state & limits
+            v_max = 0.75   # m/s (tune)
+            w_max = 0.9    # rad/s (tune)
+
+            p_last = obs['robot0_eef_pos'][-1].copy()
+            q_last = R.from_rotvec(obs['robot0_eef_rot_axis_angle'][-1].copy()).as_quat()
             # print("start pose", episode_start_pose)
             with torch.no_grad():
                 policy.reset()
@@ -244,7 +314,6 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
             print('Ready!')
 
             while True:
-                
                 # ========== policy control loop ==============
                 try:
                     # start episode
@@ -278,7 +347,7 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                             obs[f'robot0_eef_rot_axis_angle']
                         ], axis=-1)[-1]
                         obs_timestamps = obs['timestamp']
-                        print(f'Obs latency {time.time() - obs_timestamps[-1]}')
+                        # print(f'Obs latency {time.time() - obs_timestamps[-1]}')
 
                         # run inference
                         with torch.no_grad():
@@ -293,73 +362,122 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                             raw_action = result['action_pred'][0].detach().to('cpu').numpy()
                             action = get_real_umi_action(raw_action, obs, action_pose_repr)
 
+                            g_now = float(action[-1, 6]) if action.ndim == 2 else float(action[6])
+
+                            if temporal_ensembling:
+                                # Scatter predictions into buffers
+                                made_idx = iter_idx
+                                for j, a in enumerate(action):
+                                    t_abs = iter_idx + j
+                                    if 0 <= t_abs < len(temporal_action_buffer):
+                                        if temporal_action_buffer[t_abs] is None:
+                                            temporal_action_buffer[t_abs] = []
+                                        # store (action, made_idx)
+                                        temporal_action_buffer[t_abs].append((a, made_idx))
+
                             # print("Actions", action)
 
-                            print('Inference latency:', time.time() - s)
-                            if temporal_ensembling:
-                                for i, a in enumerate(action):
-                                    target_step = iter_idx + i
-                                    if target_step < len(temporal_action_buffer):
-                                        if temporal_action_buffer[target_step] is None:
-                                            temporal_action_buffer[target_step] = []
-                                        temporal_action_buffer[target_step].append(a)
-                            for a, t in zip(action, obs_timestamps[-1] + dt + np.arange(len(action)) * dt):
+                            # Execute sequence of smoothed actions (one step per loop when ensembling)
+                            this_target_poses = []
+                            # we'll fill action_timestamps after we know how many poses we kept
+
+                            # Estimate inference latency to align schedule to the sensor clock
+                            inference_latency = time.time() - s
+                            execution_buffer = 0.10
+                            schedule_offset = inference_latency + execution_buffer
+
+                            # We normally execute only 1 step per loop when ensembling
+                            for i in range(steps_per_inference):      # usually 1
+                                t_target = iter_idx + i
+                                if 0 <= t_target < len(temporal_action_buffer) and temporal_action_buffer[t_target]:
+                                    cached_pairs = temporal_action_buffer[t_target]  # list of (action, made_idx)
+
+                                    # Keep only the newest ENSEMBLE_MAX_CANDS by made_idx (recency)
+                                    # cached_pairs may already be roughly ordered, but we sort to be safe.
+                                    cached_pairs = sorted(cached_pairs, key=lambda x: x[1])[-ENSEMBLE_MAX_CANDS:]
+
+                                    acts = [p[0] for p in cached_pairs]          # actions as arrays [x y z rx ry rz g]
+                                    made = np.array([p[1] for p in cached_pairs])  # their generation iter_idx
+
+                                    # Ages in ticks relative to the newest one: newest age = 0
+                                    ages = (made.max() - made).astype(np.float64)
+
+                                    # Exponential weights by age (newest gets the largest weight)
+                                    m = 0.23
+                                    w = np.exp(-m * ages)
+                                    w = w / w.sum()
+
+                                    # Positions: weighted mean
+                                    Ps = np.stack([a[:3] for a in acts], axis=0)
+                                    p_cmd = (Ps * w[:, None]).sum(axis=0)
+
+                                    # Rotations: geodesic mean around q_last
+                                    quats = [R.from_rotvec(a[3:6]).as_quat() for a in acts]
+                                    q_cmd = _weighted_mean_quats_around(q_last, quats, w)
+
+                                elif i < len(action):
+                                    # Fallback if no cache yet for this t_target
+                                    p_cmd = action[i][:3]
+                                    q_cmd = R.from_rotvec(action[i][3:6]).as_quat()
+                                else:
+                                    break
+
+                                # SE(3) rate limit around last command
+                                p_safe, q_safe = _limit_se3_step(p_last, q_last, p_cmd, q_cmd, v_max, w_max, dt)
+                                p_last, q_last = p_safe, q_safe
+
+                                a_exec = np.zeros_like(action[0])
+                                a_exec[:3]  = p_safe
+                                a_exec[3:6] = R.from_quat(q_safe).as_rotvec()
+                                a_exec[6]   = g_now   # keep gripper smooth across blends
+
+                                this_target_poses.append(a_exec)
+
+                            # Schedule from sensor clock and drop late actions
+                            if len(this_target_poses) > 0:
+                                obs_ts = float(obs_timestamps[-1])
+                                action_timestamps = obs_ts + schedule_offset + dt * np.arange(len(this_target_poses), dtype=np.float64)
+
+                                # late-action filter (keep only actions sufficiently in the future)
+                                action_exec_latency = 0.01
+                                curr_time = time.time()
+                                is_new = action_timestamps > (curr_time + action_exec_latency)
+                                print("Is new:", is_new)
+
+                                if not np.any(is_new):
+                                    # exceeded time budget, still execute *something* (last pose) at next grid time
+                                    this_target_poses = np.asarray(this_target_poses)[[-1]]
+                                    next_step_idx = int(np.ceil((curr_time - eval_t_start) / dt))
+                                    action_timestamps = np.array([eval_t_start + next_step_idx * dt], dtype=np.float64)
+                                else:
+                                    this_target_poses = np.asarray(this_target_poses)[is_new]
+                                    action_timestamps = action_timestamps[is_new]
+                            else:
+                                # empty safety fallback (should rarely happen)
+                                this_target_poses = np.asarray([])
+                                action_timestamps = np.asarray([])
+
+                            # print('Inference latency:', time.time() - s)
+                            for a, t in zip(this_target_poses, action_timestamps):
                                 a = a.tolist()
-                                action_log.append({'timestamp': t, 
-                                                   'ee_pos_0': a[0],
-                                                   'ee_pos_1': a[1],
-                                                   'ee_pos_2': a[2],
-                                                   'ee_rot_0': a[3],
-                                                   'ee_rot_1': a[4],
-                                                   'ee_rot_2': a[5]})
-                                
-                                # action_log.append({'timestamp': t, 
-                                #                    'ee_pos_0': a[0],
-                                #                    'ee_pos_1': a[1],
-                                #                    'ee_pos_2': a[2],
-                                #                    'ee_rot_0': a[3],
-                                #                    'ee_rot_1': a[4],
-                                #                    'ee_rot_2': a[5],
-                                #                    'ee_Kx_0': a[6],
-                                #                    'ee_Kx_1': a[7],
-                                #                    'ee_Kx_2': a[8]})
+                                action_log.append({
+                                    'timestamp': t,
+                                    'ee_pos_0': a[0],
+                                    'ee_pos_1': a[1],
+                                    'ee_pos_2': a[2],
+                                    'ee_rot_0': a[3],
+                                    'ee_rot_1': a[4],
+                                    'ee_rot_2': a[5]
+                                })
 
-                        action_timestamps = (np.arange(len(action), dtype=np.float64)) * dt + obs_timestamps[-1]
-                        
-                        if temporal_ensembling:
-                            ensembled_actions = []
-                            valid_timestamps = []
-                            for i in range(len(action)):
-                                target_step = iter_idx + i
-                                if target_step >= len(temporal_action_buffer):
-                                    continue
-                                cached = temporal_action_buffer[target_step]
-                                if cached is None or len(cached) == 0:
-                                    continue
-                                k = 0.01
-                                n = len(cached)
-                                weights = np.exp(-k * np.arange(n))
-                                weights = weights / weights.sum()
-                                ensembled_action = np.average(np.stack(cached), axis=0, weights=weights)
-                                ensembled_actions.append(ensembled_action)
-                                valid_timestamps.append(action_timestamps[i])
+                            # print("Action:", this_target_poses)
 
-                            this_target_poses = ensembled_actions
-                            action_timestamps = valid_timestamps
-                        else:
-                            this_target_poses = action
-
-                        # Final execution
-                        if len(this_target_poses) > 0:
+                            # execute one step
                             env.exec_actions(
                                 actions=np.stack(this_target_poses),
                                 timestamps=np.array(action_timestamps),
                                 compensate_latency=True
                             )
-                            # print(f"Submitted {len(this_target_poses)} steps of actions.")
-                        else:
-                            print("No valid actions to submit.")
-
 
                         # visualize
                         episode_id = env.replay_buffer.n_episodes

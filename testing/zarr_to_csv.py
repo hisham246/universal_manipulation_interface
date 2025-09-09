@@ -8,8 +8,8 @@ register_codecs()
 
 # Open the zarr dataset
 # zarr_path = "/home/hisham246/uwaterloo/umi/surface_wiping_trial_1/dataset_stiffness.zarr.zip"
-zarr_path = "/home/hisham246/uwaterloo/umi/430_demos/dataset.zarr.zip"
-csv_path = "/home/hisham246/uwaterloo/umi/430_demos/csv/"
+zarr_path = "/home/hisham246/uwaterloo/umi/surface_wiping_tp/surface_wiping_tp.zarr.zip"
+csv_path = "/home/hisham246/uwaterloo/umi/surface_wiping_tp/dataset/"
 os.makedirs(csv_path, exist_ok=True)
 root = zarr.open(zarr_path)
 
@@ -22,6 +22,7 @@ episode_starts = np.concatenate(([0], episode_ends[:-1]))
 # List of data arrays to extract
 # data_keys = ["timestamp", "robot0_eef_pos", "robot0_eef_rot_axis_angle", "robot0_stiffness"]
 data_keys = ["timestamp", "robot0_eef_pos", "robot0_eef_rot_axis_angle"]
+# data_keys = ["robot0_eef_pos", "robot0_eef_rot_axis_angle"]
 
 
 # Iterate over episodes and extract data
@@ -32,12 +33,12 @@ for i, (start, end) in enumerate(zip(episode_starts, episode_ends)):
     for key in data_keys:
         episode_data[key] = root["data"][key][start:end]
 
-    timestamps = episode_data["timestamp"]
+    # timestamps = episode_data["timestamp"]
     positions = episode_data["robot0_eef_pos"]
 
-    # Compute Cartesian velocity
-    vel = np.gradient(positions, timestamps, axis=0)
-    episode_data["robot0_eef_vel"] = vel.astype(np.float32)
+    # # Compute Cartesian velocity
+    # vel = np.gradient(positions, timestamps, axis=0)
+    # episode_data["robot0_eef_vel"] = vel.astype(np.float32)
 
     df = pd.DataFrame()
     for key, values in episode_data.items():
