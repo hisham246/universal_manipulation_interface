@@ -3,12 +3,12 @@ name: umi
 camera_obs_latency: 0.125
 robot_obs_latency: 0.0001
 gripper_obs_latency: 0.02
-dataset_frequeny: 0 #59.94
+dataset_frequency: 0 #59.94
 obs_down_sample_steps: 3 # 3, 1
 
 low_dim_obs_horizon: 2
 img_obs_horizon: 2
-action_horizon: 8
+action_horizon: 16
 ignore_proprioception: False
 
 shape_meta: &shape_meta
@@ -24,7 +24,7 @@ shape_meta: &shape_meta
     robot0_eef_pos:
       shape: [3]
       horizon: ${task.low_dim_obs_horizon} # int
-      latency_steps: ${eval:'(${task.camera_obs_latency} - ${task.robot_obs_latency}) * ${task.dataset_frequeny}'} # float
+      latency_steps: ${eval:'(${task.camera_obs_latency} - ${task.robot_obs_latency}) * ${task.dataset_frequency}'} # float
       down_sample_steps: ${task.obs_down_sample_steps} # float
       type: low_dim
       ignore_by_policy: ${task.ignore_proprioception}
@@ -32,21 +32,21 @@ shape_meta: &shape_meta
     #   shape: [1]
     #   axis: [2] # 2 means z-axis
     #   horizon: ${task.low_dim_obs_horizon} # int
-    #   latency_steps: ${eval:'(${task.camera_obs_latency} - ${task.robot_obs_latency}) * ${task.dataset_frequeny}'} # float
+    #   latency_steps: ${eval:'(${task.camera_obs_latency} - ${task.robot_obs_latency}) * ${task.dataset_frequency}'} # float
     #   down_sample_steps: ${task.obs_down_sample_steps} # float
     #   type: low_dim
     # robot0_eef_rot_axis_angle_abs:
     #   shape: [2]
     #   axis: [0, 1] # yaw and pitch
     #   horizon: ${task.low_dim_obs_horizon} # int
-    #   latency_steps: ${eval:'(${task.camera_obs_latency} - ${task.robot_obs_latency}) * ${task.dataset_frequeny}'} # float
+    #   latency_steps: ${eval:'(${task.camera_obs_latency} - ${task.robot_obs_latency}) * ${task.dataset_frequency}'} # float
     #   down_sample_steps: ${task.obs_down_sample_steps} # float
     #   type: low_dim
     robot0_eef_rot_axis_angle:
       raw_shape: [3]
       shape: [6]
       horizon: ${task.low_dim_obs_horizon} # int
-      latency_steps: ${eval:'(${task.camera_obs_latency} - ${task.robot_obs_latency}) * ${task.dataset_frequeny}'} # float
+      latency_steps: ${eval:'(${task.camera_obs_latency} - ${task.robot_obs_latency}) * ${task.dataset_frequency}'} # float
       down_sample_steps: ${task.obs_down_sample_steps} # float
       type: low_dim
       rotation_rep: rotation_6d
@@ -54,7 +54,7 @@ shape_meta: &shape_meta
     robot0_gripper_width:
       shape: [1]
       horizon: ${task.low_dim_obs_horizon} # int
-      latency_steps: ${eval:'(${task.camera_obs_latency} - ${task.gripper_obs_latency}) * ${task.dataset_frequeny}'} # float
+      latency_steps: ${eval:'(${task.camera_obs_latency} - ${task.gripper_obs_latency}) * ${task.dataset_frequency}'} # float
       down_sample_steps: ${task.obs_down_sample_steps} # float
       type: low_dim
       ignore_by_policy: ${task.ignore_proprioception}
@@ -63,7 +63,7 @@ shape_meta: &shape_meta
     # robot0_eef_pos_wrt_start:
     #   shape: [3]
     #   horizon: ${task.low_dim_obs_horizon} # int
-    #   latency_steps: ${eval:'(${task.camera_obs_latency} - ${task.robot_obs_latency}) * ${task.dataset_frequeny}'} # float
+    #   latency_steps: ${eval:'(${task.camera_obs_latency} - ${task.robot_obs_latency}) * ${task.dataset_frequency}'} # float
     #   down_sample_steps: ${task.obs_down_sample_steps} # float
     #   type: low_dim
     #   ignore_by_policy: ${task.ignore_proprioception}
@@ -71,7 +71,7 @@ shape_meta: &shape_meta
       raw_shape: [3]
       shape: [6]
       horizon: ${task.low_dim_obs_horizon} # int
-      latency_steps: ${eval:'(${task.camera_obs_latency} - ${task.robot_obs_latency}) * ${task.dataset_frequeny}'} # float
+      latency_steps: ${eval:'(${task.camera_obs_latency} - ${task.robot_obs_latency}) * ${task.dataset_frequency}'} # float
       down_sample_steps: ${task.obs_down_sample_steps} # float
       type: low_dim
       ignore_by_policy: ${task.ignore_proprioception}

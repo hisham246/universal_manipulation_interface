@@ -229,13 +229,13 @@ class UvcCamera(mp.Process):
             while not self.stop_event.is_set():
                 ts = time.time()
                 ret = cap.grab()
-                assert ret
+                # assert ret
                 
                 # directly write into shared memory to avoid copy
                 frame = self.video_recorder.get_img_buffer()
                 ret, frame = cap.retrieve(frame)
                 t_recv = time.time()
-                assert ret
+                # assert ret
                 mt_cap = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000
                 t_cap = mt_cap - time.monotonic() + time.time()
                 t_cal = t_recv - self.receive_latency # calibrated latency

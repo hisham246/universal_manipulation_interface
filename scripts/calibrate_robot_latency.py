@@ -14,7 +14,6 @@ import numpy as np
 from multiprocessing.managers import SharedMemoryManager
 import scipy.spatial.transform as st
 from umi.real_world.spacemouse_shared_memory import Spacemouse
-from umi.real_world.rtde_interpolation_controller import RTDEInterpolationController
 from umi.real_world.franka_interpolation_controller import FrankaInterpolationController
 from umi.common.precise_sleep import precise_wait
 from umi.common.latency_util import get_latency
