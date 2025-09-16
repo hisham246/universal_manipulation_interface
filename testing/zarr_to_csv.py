@@ -8,12 +8,12 @@ register_codecs()
 
 # Open the zarr dataset
 # zarr_path = "/home/hisham246/uwaterloo/umi/surface_wiping_trial_1/dataset_stiffness.zarr.zip"
-zarr_path = "/home/hisham246/uwaterloo/umi/surface_wiping_tp/surface_wiping_tp.zarr.zip"
-csv_path = "/home/hisham246/uwaterloo/umi/surface_wiping_tp/dataset/"
+zarr_path = "/home/hisham246/uwaterloo/umi/reaching_ball/dataset.zarr.zip"
+csv_path = "/home/hisham246/uwaterloo/umi/reaching_ball/csv/"
 os.makedirs(csv_path, exist_ok=True)
 root = zarr.open(zarr_path)
 
-print(root.tree()) 
+# print(root.tree()) 
 
 # Extract episode boundaries
 episode_ends = root['meta']['episode_ends'][:]
