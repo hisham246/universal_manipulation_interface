@@ -8,8 +8,8 @@ register_codecs()
 
 # Open the zarr dataset
 # zarr_path = "/home/hisham246/uwaterloo/umi/surface_wiping_trial_1/dataset_stiffness.zarr.zip"
-zarr_path = "/home/hisham246/uwaterloo/umi/reaching_ball/dataset.zarr.zip"
-csv_path = "/home/hisham246/uwaterloo/umi/reaching_ball/csv/"
+zarr_path = "/home/hisham246/uwaterloo/umi/reaching_ball_multimodal/reaching_ball_multimodal.zarr.zip"
+csv_path = "/home/hisham246/uwaterloo/umi/reaching_ball_multimodal/csv/"
 os.makedirs(csv_path, exist_ok=True)
 root = zarr.open(zarr_path)
 
