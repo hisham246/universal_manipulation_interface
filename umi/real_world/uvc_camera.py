@@ -229,7 +229,7 @@ class UvcCamera(mp.Process):
             while not self.stop_event.is_set():
                 ts = time.time()
                 ret = cap.grab()
-                # assert ret
+                assert ret
                 
                 # directly write into shared memory to avoid copy
                 frame = self.video_recorder.get_img_buffer()

@@ -81,7 +81,7 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 # @click.option('--camera_reorder', '-cr', default='021')
 @click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
 # @click.option('--init_joints', '-j', is_flag=True, default=False, help="Whether to initialize robot joint configuration in the beginning.")
-@click.option('--steps_per_inference', '-si', default= 1, type=int, help="Action horizon for inference.")
+@click.option('--steps_per_inference', '-si', default= 8, type=int, help="Action horizon for inference.")
 @click.option('--max_duration', '-md', default=60, help='Max duration for each epoch in seconds.')
 @click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
 @click.option('--command_latency', '-cl', default=0.01, type=float, help="Latency between receiving SapceMouse command to executing on Robot in Sec.")
@@ -109,6 +109,7 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
     # Diffusion UNet
     # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_pickplace_2.ckpt'
     ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/reaching_ball_multimodal.ckpt'
+
 
     # Compliance policy unet
     # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_compliance_trial_2.ckpt'
@@ -253,10 +254,6 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                     t_start = time.monotonic() + start_delay
                     env.start_episode(eval_t_start)
 
-                    if temporal_ensembling:
-                        max_steps = int(max_duration * frequency) + steps_per_inference
-                        temporal_action_buffer = [None] * max_steps
-
                     # wait for 1/30 sec to get the closest frame actually
                     # reduces overall latency
                     frame_latency = 1/60
@@ -291,74 +288,45 @@ def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
                             result = policy.predict_action(obs_dict)
                             raw_action = result['action_pred'][0].detach().to('cpu').numpy()
                             action = get_real_umi_action(raw_action, obs, action_pose_repr)
-
-                            # print("Actions", action)
-
-                            print('Inference latency:', time.time() - s)
-                            if temporal_ensembling:
-                                for i, a in enumerate(action):
-                                    target_step = iter_idx + i
-                                    if target_step < len(temporal_action_buffer):
-                                        if temporal_action_buffer[target_step] is None:
-                                            temporal_action_buffer[target_step] = []
-                                        temporal_action_buffer[target_step].append(a)
-                            for a, t in zip(action, obs_timestamps[-1] + dt + np.arange(len(action)) * dt):
-                                a = a.tolist()
-                                action_log.append({'timestamp': t, 
-                                                   'ee_pos_0': a[0],
-                                                   'ee_pos_1': a[1],
-                                                   'ee_pos_2': a[2],
-                                                   'ee_rot_0': a[3],
-                                                   'ee_rot_1': a[4],
-                                                   'ee_rot_2': a[5]})
-                                
-                                # action_log.append({'timestamp': t, 
-                                #                    'ee_pos_0': a[0],
-                                #                    'ee_pos_1': a[1],
-                                #                    'ee_pos_2': a[2],
-                                #                    'ee_rot_0': a[3],
-                                #                    'ee_rot_1': a[4],
-                                #                    'ee_rot_2': a[5],
-                                #                    'ee_Kx_0': a[6],
-                                #                    'ee_Kx_1': a[7],
-                                #                    'ee_Kx_2': a[8]})
-
-                        action_timestamps = (np.arange(len(action), dtype=np.float64)) * dt + obs_timestamps[-1]
-                        
-                        if temporal_ensembling:
-                            ensembled_actions = []
-                            valid_timestamps = []
-                            for i in range(len(action)):
-                                target_step = iter_idx + i
-                                if target_step >= len(temporal_action_buffer):
-                                    continue
-                                cached = temporal_action_buffer[target_step]
-                                if cached is None or len(cached) == 0:
-                                    continue
-                                k = 0.01
-                                n = len(cached)
-                                weights = np.exp(-k * np.arange(n))
-                                weights = weights / weights.sum()
-                                ensembled_action = np.average(np.stack(cached), axis=0, weights=weights)
-                                ensembled_actions.append(ensembled_action)
-                                valid_timestamps.append(action_timestamps[i])
-
-                            this_target_poses = ensembled_actions
-                            action_timestamps = valid_timestamps
-                        else:
+                            action_timestamps = (np.arange(len(action), dtype=np.float64)) * dt + obs_timestamps[-1]
                             this_target_poses = action
 
-                        # Final execution
-                        if len(this_target_poses) > 0:
-                            env.exec_actions(
-                                actions=np.stack(this_target_poses),
-                                timestamps=np.array(action_timestamps),
-                                compensate_latency=True
-                            )
-                            # print(f"Submitted {len(this_target_poses)} steps of actions.")
+                        action_exec_latency = 0.01
+                        curr_time = time.time()
+                        is_new = action_timestamps > (curr_time + action_exec_latency)
+                        # print("Is new:", is_new)
+                        if np.sum(is_new) == 0:
+                            # exceeded time budget, still do something
+                            this_target_poses = this_target_poses[[-1]]
+                            # schedule on next available step
+                            next_step_idx = int(np.ceil((curr_time - eval_t_start) / dt))
+                            action_timestamp = eval_t_start + (next_step_idx) * dt
+                            print('Over budget', action_timestamp - curr_time)
+                            action_timestamps = np.array([action_timestamp])
                         else:
-                            print("No valid actions to submit.")
+                            this_target_poses = this_target_poses[is_new]
+                            action_timestamps = action_timestamps[is_new]
 
+                        for a, t in zip(this_target_poses, action_timestamps):
+                            a = a.tolist()
+                            # print("Actions", a)
+                            action_log.append({
+                                'timestamp': t,
+                                'ee_pos_0': a[0],
+                                'ee_pos_1': a[1],
+                                'ee_pos_2': a[2],
+                                'ee_rot_0': a[3],
+                                'ee_rot_1': a[4],
+                                'ee_rot_2': a[5]
+                            })
+
+                        # execute actions
+                        env.exec_actions(
+                            actions=this_target_poses,
+                            timestamps=action_timestamps,
+                            compensate_latency=True
+                        )
+                        print(f"Submitted {len(this_target_poses)} steps of actions.")
 
                         # visualize
                         episode_id = env.replay_buffer.n_episodes

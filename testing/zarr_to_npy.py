@@ -6,8 +6,8 @@ from diffusion_policy.codecs.imagecodecs_numcodecs import register_codecs
 register_codecs()
 
 # Configuration
-zarr_path = "/home/hisham246/uwaterloo/umi/surface_wiping_tp/surface_wiping_tp.zarr.zip"
-output_dir = "/home/hisham246/uwaterloo/umi/surface_wiping_tp/dataset/"
+zarr_path = "/home/hisham246/uwaterloo/umi/reaching_ball_multimodal/reaching_ball_multimodal.zarr.zip"
+output_dir = "/home/hisham246/uwaterloo/umi/reaching_ball_multimodal/npy/"
 os.makedirs(output_dir, exist_ok=True)
 
 # Open zarr dataset
