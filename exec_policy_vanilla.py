@@ -19,7 +19,6 @@ Make sure you can hit the robot hardware emergency-stop button quickly!
 Recording control:
 Press "S" to stop evaluation and gain control back.
 """
-# %%
 import sys
 import os
 
@@ -27,7 +26,6 @@ ROOT_DIR = os.path.dirname(os.path.dirname(__file__))
 sys.path.append(ROOT_DIR)
 os.chdir(ROOT_DIR)
 
-# %%
 import os
 import pathlib
 import time
@@ -93,15 +91,11 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 @click.option('--mirror_swap', is_flag=True, default=False)
 @click.option('--temporal_ensembling', is_flag=True, default=False, help='Enable temporal ensembling for inference.')
 
-def main(output, robot_ip, gripper_ip, gripper_port, gripper_speed,
-    match_dataset, match_episode, match_camera,
-    vis_camera_idx, 
-    steps_per_inference, max_duration,
-    frequency, command_latency, 
-    no_mirror, sim_fov, camera_intrinsics, 
-    mirror_crop, mirror_swap, temporal_ensembling):
-
-    max_gripper_width = 0.1
+def main(output, robot_ip, gripper_ip, gripper_port,
+    match_dataset, match_camera,
+    vis_camera_idx, steps_per_inference, max_duration,
+    frequency, no_mirror, sim_fov, camera_intrinsics, 
+    mirror_crop, mirror_swap):
 
     # Diffusion Transformer
     # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_transformer_pickplace.ckpt'

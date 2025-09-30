@@ -1,6 +1,23 @@
 """
 Usage:
-(umi): python exec_policy_temporal_ensembling.py -o output
+(umi): python exec_policy.py -o output
+
+================ Human in control ==============
+Robot movement:
+Move your SpaceMouse to move the robot EEF (locked in xy plane).
+Press SpaceMouse right button to unlock z axis.
+Press SpaceMouse left button to enable rotation axes.
+
+Recording control:
+Click the opencv window (make sure it's in focus).
+Press "C" to start evaluation (hand control over to policy).
+Press "Q" to exit program.
+
+================ Policy in control ==============
+Make sure you can hit the robot hardware emergency-stop button quickly! 
+
+Recording control:
+Press "S" to stop evaluation and gain control back.
 """
 import sys
 import os
@@ -40,29 +57,6 @@ from umi.real_world.real_inference_util import (get_real_obs_resolution,
                                                 get_real_umi_obs_dict,
                                                 get_real_umi_action)
 import pandas as pd
-
-OmegaConf.register_new_resolver("eval", eval, replace=True)
-
-@click.command()
-@click.option('--output', '-o', required=True, help='Directory to save recording')
-@click.option('--robot_ip', default='129.97.71.27')
-@click.option('--gripper_ip', default='129.97.71.27')
-@click.option('--gripper_port', type=int, default=4242)
-@click.option('--match_dataset', '-m', default=None, help='Dataset used to overlay and adjust initial condition')
-@click.option('--match_episode', '-me', default=None, type=int, help='Match specific episode from the match dataset')
-@click.option('--match_camera', '-mc', default=0, type=int)
-@click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
-@click.option('--steps_per_inference', '-si', default= 1, type=int, help="Action horizon for inference.")
-@click.option('--max_duration', '-md', default=60, help='Max duration for each epoch in seconds.')
-@click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
-@click.option('--command_latency', '-cl', default=0.01, type=float, help="Latency between receiving SapceMouse command to executing on Robot in Sec.")
-@click.option('-nm', '--no_mirror', is_flag=True, default=False)
-@click.option('-sf', '--sim_fov', type=float, default=None)
-@click.option('-ci', '--camera_intrinsics', type=str, default=None)
-@click.option('--mirror_crop', is_flag=True, default=False)
-@click.option('--mirror_swap', is_flag=True, default=False)
-@click.option('--temporal_ensembling', is_flag=True, default=True, help='Enable temporal ensembling for inference.')
-
 
 # quat utilities
 def q_norm(q): return q / (np.linalg.norm(q) + 1e-12)
@@ -123,9 +117,35 @@ def limit_se3_step(p_prev, q_prev, p_cmd, q_cmd, v_max, w_max, dt):
     return p_new, q_norm(q_new)
 
 
+OmegaConf.register_new_resolver("eval", eval, replace=True)
+
+@click.command()
+@click.option('--output', '-o', required=True, help='Directory to save recording')
+@click.option('--robot_ip', default='129.97.71.27')
+@click.option('--gripper_ip', default='129.97.71.27')
+@click.option('--gripper_port', type=int, default=4242)
+@click.option('--match_dataset', '-m', default=None, help='Dataset used to overlay and adjust initial condition')
+@click.option('--match_episode', '-me', default=None, type=int, help='Match specific episode from the match dataset')
+@click.option('--match_camera', '-mc', default=0, type=int)
+@click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
+@click.option('--steps_per_inference', '-si', default= 1, type=int, help="Action horizon for inference.")
+@click.option('--max_duration', '-md', default=60, help='Max duration for each epoch in seconds.')
+@click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
+@click.option('--command_latency', '-cl', default=0.01, type=float, help="Latency between receiving SapceMouse command to executing on Robot in Sec.")
+@click.option('-nm', '--no_mirror', is_flag=True, default=False)
+@click.option('-sf', '--sim_fov', type=float, default=None)
+@click.option('-ci', '--camera_intrinsics', type=str, default=None)
+@click.option('--mirror_crop', is_flag=True, default=False)
+@click.option('--mirror_swap', is_flag=True, default=False)
+@click.option('--temporal_ensembling', is_flag=True, default=True, help='Enable temporal ensembling for inference.')
+
+
 def main(output, robot_ip, gripper_ip, gripper_port,
-    match_dataset, match_camera, vis_camera_idx, steps_per_inference, \
-    max_duration, frequency, no_mirror, sim_fov, camera_intrinsics, \
+    match_dataset, match_camera,
+    vis_camera_idx, 
+    steps_per_inference, max_duration,
+    frequency, 
+    no_mirror, sim_fov, camera_intrinsics, 
     mirror_crop, mirror_swap, temporal_ensembling):
 
     ENSEMBLE_MAX_CANDS = 6
@@ -161,6 +181,7 @@ def main(output, robot_ip, gripper_ip, gripper_port,
 
     print("steps_per_inference:", steps_per_inference)
     with SharedMemoryManager() as shm_manager:
+        # with Spacemouse(shm_manager=shm_manager) as sm, \
         with KeystrokeCounter() as key_counter, \
             VicUmiEnv(
                 output_dir=output, 
@@ -245,12 +266,12 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                     obs[f'robot0_eef_rot_axis_angle']
                 ], axis=-1)[-1]
             
+            # SE(3) state & limits
             v_max = 0.75   # m/s
             w_max = 0.9    # rad/s
 
             p_last = obs['robot0_eef_pos'][-1].copy()
             q_last = R.from_rotvec(obs['robot0_eef_rot_axis_angle'][-1].copy()).as_quat()
-            
             with torch.no_grad():
                 policy.reset()
                 obs_dict_np = get_real_umi_obs_dict(
@@ -289,7 +310,6 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                     frame_latency = 1/60
                     precise_wait(eval_t_start - frame_latency, time_func=time.time)
                     print("Started!")
-
                     iter_idx = 0
                     action_log = []
                     while True:
@@ -298,7 +318,6 @@ def main(output, robot_ip, gripper_ip, gripper_port,
 
                         # get obs
                         obs = env.get_obs()
-                        # print("Camera:", obs['camera0_rgb'].shape)
                         episode_start_pose = np.concatenate([
                             obs[f'robot0_eef_pos'],
                             obs[f'robot0_eef_rot_axis_angle']
@@ -391,12 +410,13 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                             # Schedule from sensor clock and drop late actions
                             if len(this_target_poses) > 0:
                                 obs_ts = float(obs_timestamps[-1])
-                                action_timestamps = obs_ts + execution_buffer + dt * np.arange(len(this_target_poses), dtype=np.float64)
+                                action_timestamps = obs_ts + schedule_offset + dt * np.arange(len(this_target_poses), dtype=np.float64)
 
                                 # late-action filter (keep only actions sufficiently in the future)
                                 action_exec_latency = 0.01
                                 curr_time = time.time()
                                 is_new = action_timestamps > (curr_time + action_exec_latency)
+                                print("Is new:", is_new)
 
                                 if not np.any(is_new):
                                     # exceeded time budget, still execute *something* (last pose) at next grid time
@@ -423,6 +443,8 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                                     'ee_rot_1': a[4],
                                     'ee_rot_2': a[5]
                                 })
+
+                            # print("Action:", this_target_poses)
 
                             # execute one step
                             env.exec_actions(

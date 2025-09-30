@@ -1,6 +1,6 @@
 """
 Usage:
-(umi): python exec_policy_temporal_ensembling.py -o output
+(umi): python exec_policy_lipo.py -o output
 """
 import sys
 import os
@@ -14,7 +14,6 @@ import pathlib
 import time
 from multiprocessing.managers import SharedMemoryManager
 
-from scipy.spatial.transform import Rotation as R
 import av
 import click
 import cv2
@@ -22,6 +21,7 @@ import dill
 import hydra
 import numpy as np
 import torch
+import cvxpy as cp
 from omegaconf import OmegaConf
 import json
 from diffusion_policy.common.replay_buffer import ReplayBuffer
@@ -52,7 +52,7 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 @click.option('--match_episode', '-me', default=None, type=int, help='Match specific episode from the match dataset')
 @click.option('--match_camera', '-mc', default=0, type=int)
 @click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
-@click.option('--steps_per_inference', '-si', default= 1, type=int, help="Action horizon for inference.")
+@click.option('--steps_per_inference', '-si', default= 8, type=int, help="Action horizon for inference.")
 @click.option('--max_duration', '-md', default=60, help='Max duration for each epoch in seconds.')
 @click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
 @click.option('--command_latency', '-cl', default=0.01, type=float, help="Latency between receiving SapceMouse command to executing on Robot in Sec.")
@@ -61,93 +61,172 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 @click.option('-ci', '--camera_intrinsics', type=str, default=None)
 @click.option('--mirror_crop', is_flag=True, default=False)
 @click.option('--mirror_swap', is_flag=True, default=False)
-@click.option('--temporal_ensembling', is_flag=True, default=True, help='Enable temporal ensembling for inference.')
 
+# LiPo
+class ActionLiPo:
+    def __init__(self, solver="CLARABEL", 
+                 chunk_size=100, 
+                 blending_horizon=10, 
+                 action_dim=7, 
+                 len_time_delay=0,
+                 dt=0.0333,
+                 epsilon_blending=0.02,
+                 epsilon_path=0.003):
+        """
+        ActionLiPo (Action Lightweight Post-Optimizer) for action optimization.      
+        Parameters:
+        - solver: The solver to use for the optimization problem.
+        - chunk_size: The size of the action chunk to optimize.
+        - blending_horizon: The number of actions to blend with past actions.
+        - action_dim: The dimension of the action space.
+        - len_time_delay: The length of the time delay for the optimization.
+        - dt: Time step for the optimization.
+        - epsilon_blending: Epsilon value for blending actions.
+        - epsilon_path: Epsilon value for path actions.
+        """
 
-# quat utilities
-def q_norm(q): return q / (np.linalg.norm(q) + 1e-12)
-def q_conj(q): return np.array([-q[0], -q[1], -q[2], q[3]])
-def q_mul(a,b):
-    x1,y1,z1,w1 = a; x2,y2,z2,w2 = b
-    return np.array([
-        w1*x2 + x1*w2 + y1*z2 - z1*y2,
-        w1*y2 - x1*z2 + y1*w2 + z1*x2,
-        w1*z2 + x1*y2 - y1*x2 + z1*w2,
-        w1*w2 - x1*x2 - y1*y2 - z1*z2
-    ])
-def slerp(q0,q1,t):
-    q0=q_norm(q0); q1=q_norm(q1)
-    if np.dot(q0,q1) < 0: q1 = -q1
-    d = np.clip(np.dot(q0,q1), -1.0, 1.0)
-    if d > 0.9995:
-        out = q_norm(q0 + t*(q1-q0))
-    else:
-        th = np.arccos(d)
-        out = (np.sin((1-t)*th)*q0 + np.sin(t*th)*q1)/np.sin(th)
-    return q_norm(out)
-def geo_angle(q0,q1):
-    d = np.clip(abs(np.dot(q_norm(q0), q_norm(q1))), -1.0, 1.0)
-    return 2.0*np.arccos(d)  # [0, pi]
+        self.solver = solver
+        self.N = chunk_size
+        self.B = blending_horizon
+        self.D = action_dim
+        self.TD = len_time_delay
 
-# geodesic mean around a reference quaternion
-def weighted_mean_quats_around(q_ref, quats, weights):
-    # map each quat to tangent at q_ref, average, exp back
-    vecs = []
-    for q in quats:
-        if np.dot(q, q_ref) < 0: q = -q
-        q_err = q_mul(q_conj(q_ref), q)
-        rotvec = R.from_quat(q_err).as_rotvec()
-        vecs.append(rotvec)
-    vbar = np.average(np.stack(vecs, 0), axis=0, weights=weights)
-    q_delta = R.from_rotvec(vbar).as_quat()
-    return q_mul(q_ref, q_delta)
+        self.dt = dt
+        self.epsilon_blending = epsilon_blending
+        self.epsilon_path = epsilon_path
+        
+        JM = 3  # margin for jerk calculation
+        self.JM = JM
+        self.epsilon = cp.Variable((self.N+JM, self.D)) # previous + 3 to consider previous vel/acc/jrk
+        self.ref = cp.Parameter((self.N+JM, self.D),value=np.zeros((self.N+JM, self.D))) # previous + 3
+        
+        D_j = np.zeros((self.N+JM, self.N+JM))
+        for i in range(self.N - 2):
+            D_j[i, i]     = -1
+            D_j[i, i+1]   = 3
+            D_j[i, i+2]   = -3
+            D_j[i, i+3]   = 1
+        D_j = D_j / self.dt**3
 
-# SE(3) step limiter
-def limit_se3_step(p_prev, q_prev, p_cmd, q_cmd, v_max, w_max, dt):
-    # translation
-    dp = p_cmd - p_prev
-    n = np.linalg.norm(dp)
-    max_dp = v_max * dt
-    if n > max_dp:
-        dp *= (max_dp / (n + 1e-12))
-    p_new = p_prev + dp
-    # rotation
-    ang = geo_angle(q_prev, q_cmd)
-    max_dang = w_max * dt
-    if ang > max_dang + 1e-9:
-        t = max_dang / ang
-        q_new = slerp(q_prev, q_cmd, t)
-    else:
-        # keep hemisphere continuity
-        q_new = q_cmd if np.dot(q_prev, q_cmd) >= 0 else -q_cmd
-    return p_new, q_norm(q_new)
+        q_total = self.epsilon + self.ref  # (N, D)
+        cost = cp.sum([cp.sum_squares(D_j @ q_total[:, d]) for d in range(self.D)])
+
+        constraints = []
+
+        constraints += [self.epsilon[self.B+JM:] <= self.epsilon_path]
+        constraints += [self.epsilon[self.B+JM:] >= - self.epsilon_path]
+        constraints += [self.epsilon[JM+1+self.TD:self.B+JM] <= self.epsilon_blending]
+        constraints += [self.epsilon[JM+1+self.TD:self.B+JM] >= - self.epsilon_blending]
+        constraints += [self.epsilon[0:JM+1+self.TD] == 0.0]
+
+        np.set_printoptions(precision=3, suppress=True, linewidth=100)
+
+        self.p = cp.Problem(cp.Minimize(cost), constraints)
+
+        # Initialize the problem & warm up
+        self.p.solve(warm_start=True, verbose=False, solver=self.solver, time_limit=0.05)
+        
+        self.log = []
+
+    def solve(self, actions: np.ndarray, past_actions: np.ndarray, len_past_actions: int):
+        """
+        Solve the optimization problem with the given actions and past actions.
+        Parameters:
+        - actions: The current actions to optimize.
+        - past_actions: The past actions to blend with.
+        - len_past_actions: The number of past actions to consider for blending.
+        Returns:
+        - solved: The optimized actions after solving the problem.
+        - ref: The reference actions used in the optimization.
+        """
+
+        blend_len = len_past_actions
+        JM = self.JM
+        self.ref.value[JM:] = actions.copy()
+        
+        if blend_len > 0:
+            # update last actions
+            self.ref.value[:JM+self.TD] = past_actions[-blend_len-JM:-blend_len + self.TD].copy()
+            ratio_space = np.linspace(0, 1, blend_len-self.TD) # (B,1)    
+            self.ref.value[JM+self.TD:blend_len+JM] = ratio_space[:, None] * actions[self.TD:blend_len] + (1 - ratio_space[:, None]) * past_actions[-blend_len+self.TD:]
+        else: # blend_len == 0
+            # update last actions
+            self.ref.value[:JM] = actions[0]
+            
+        t0 = time.time()
+        try:
+            self.p.solve(warm_start=True, verbose=False, solver=self.solver, time_limit=0.05)
+        except Exception as e:
+            return None, e
+        t1 = time.time()
+
+        solved_time = t1 - t0
+        self.solved = self.epsilon.value.copy() + self.ref.value.copy()
+
+        self.log.append({
+            "time": solved_time,
+            "epsilon": self.epsilon.value.copy(),
+            "ref": self.ref.value.copy(),
+            "solved": self.solved.copy()
+        })
+
+        return self.solved[JM:].copy(), self.ref.value[JM:].copy()
+
+    def get_log(self):
+        return self.log
+
+    def reset_log(self):
+        self.log = []
+
+    def print_solved_times(self):
+        if self.log:
+            avg_time = np.mean([entry["time"] for entry in self.log])
+            std_time = np.std([entry["time"] for entry in self.log])
+            num_logs = len(self.log)
+            print(f"Number of logs: {num_logs}")
+            print(f"Average solved time: {avg_time:.4f} seconds, Std: {std_time:.4f} seconds")
+        else:
+            print("No logs available.")
 
 
 def main(output, robot_ip, gripper_ip, gripper_port,
-    match_dataset, match_camera, vis_camera_idx, steps_per_inference, \
-    max_duration, frequency, no_mirror, sim_fov, camera_intrinsics, \
-    mirror_crop, mirror_swap, temporal_ensembling):
+    match_dataset, match_camera, vis_camera_idx, 
+    steps_per_inference, max_duration,
+    frequency, no_mirror, sim_fov, 
+    camera_intrinsics, mirror_crop, mirror_swap):
 
-    ENSEMBLE_MAX_CANDS = 6
-
-    # Diffusion Transformer
-    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_transformer_pickplace.ckpt'
-
-    # Diffusion UNet
-    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_pickplace_2.ckpt'
+    # LiPo Configuration
+    # Adjust these parameters based on your needs
+    lipo_chunk_size = 16  # Larger than steps_per_inference to allow overlap
+    lipo_blending_horizon = 8  # How many steps to blend between chunks
+    lipo_time_delay = 0  # Account for inference latency (in timesteps)
+    
     ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/surface_wiping_unet_position_control.ckpt'
-
-    # Compliance policy unet
-    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_compliance_trial_2.ckpt'
+    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_pickplace_2.ckpt'
 
     payload = torch.load(open(ckpt_path, 'rb'), map_location='cpu', pickle_module=dill)
     cfg = payload['cfg']
 
-    # setup experiment
-    dt = 1/frequency
+    cfg._target_ = "diffusion_policy.train_diffusion_unet_image_workspace.TrainDiffusionUnetImageWorkspace"
+    cfg.policy._target_ = "diffusion_policy.diffusion_unet_timm_policy.DiffusionUnetTimmPolicy"
+    cfg.policy.obs_encoder._target_ = "policy_utils.timm_obs_encoder.TimmObsEncoder"
+    cfg.ema._target_ = "policy_utils.ema_model.EMAModel"
 
+    dt = 1/frequency
     obs_res = get_real_obs_resolution(cfg.task.shape_meta)
-    # load fisheye converter
+    
+    # Initialize LiPo
+    lipo = ActionLiPo(
+        solver="CLARABEL",
+        chunk_size=lipo_chunk_size,
+        blending_horizon=lipo_blending_horizon,
+        action_dim=7,  # Action dimension
+        len_time_delay=lipo_time_delay,
+        dt=dt,
+        epsilon_blending=0.02,  # Allow more deviation in blending zone
+        epsilon_path=0.003     # Tighter constraint for main trajectory
+    )
+
     fisheye_converter = None
     if sim_fov is not None:
         assert camera_intrinsics is not None
@@ -163,26 +242,24 @@ def main(output, robot_ip, gripper_ip, gripper_port,
     with SharedMemoryManager() as shm_manager:
         with KeystrokeCounter() as key_counter, \
             VicUmiEnv(
-                output_dir=output, 
+                output_dir=output,
                 robot_ip=robot_ip,
                 gripper_ip=gripper_ip,
-                gripper_port=gripper_port,
+                gripper_port=gripper_port, 
                 frequency=frequency,
                 obs_image_resolution=obs_res,
                 obs_float32=True,
                 camera_reorder=None,
-                # latency
-                # camera_obs_latency=0.145,
-                # robot_obs_latency=0.0001,
-                # gripper_obs_latency=0.01,
-                # robot_action_latency=0.2,
-                # gripper_action_latency=0.1,
-                camera_obs_latency=0.0,
-                robot_obs_latency=0.0,
-                gripper_obs_latency=0.0,
-                robot_action_latency=0.0,
-                gripper_action_latency=0.0,
-                # obs
+                # camera_obs_latency=0.0,
+                # robot_obs_latency=0.0,
+                # gripper_obs_latency=0.0,
+                # robot_action_latency=0.0,
+                # gripper_action_latency=0.0,
+                camera_obs_latency=0.145,
+                robot_obs_latency=0.0001,
+                gripper_obs_latency=0.01,
+                robot_action_latency=0.2,
+                gripper_action_latency=0.1,
                 camera_obs_horizon=cfg.task.shape_meta.obs.camera0_rgb.horizon,
                 robot_obs_horizon=cfg.task.shape_meta.obs.robot0_eef_pos.horizon,
                 gripper_obs_horizon=cfg.task.shape_meta.obs.robot0_gripper_width.horizon,
@@ -190,15 +267,15 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                 fisheye_converter=fisheye_converter,
                 mirror_crop=mirror_crop,
                 mirror_swap=mirror_swap,
-                # action
-                max_pos_speed=1.5,
-                max_rot_speed=2.0,
+                max_pos_speed=2.5,
+                max_rot_speed=1.5,
                 shm_manager=shm_manager) as env:
+            
             cv2.setNumThreads(2)
             print("Waiting for camera")
             time.sleep(1.0)
 
-            # load match_dataset
+            # [Match dataset loading code remains the same]
             episode_first_frame_map = dict()
             match_replay_buffer = None
             if match_dataset is not None:
@@ -220,8 +297,6 @@ def main(output, robot_ip, gripper_ip, gripper_port,
             print(f"Loaded initial frame for {len(episode_first_frame_map)} episodes")
 
             # creating model
-            # have to be done after fork to prevent 
-            # duplicating CUDA context with ffmpeg nvenc
             cls = hydra.utils.get_class(cfg._target_)
             workspace = cls(cfg)
             workspace: BaseWorkspace
@@ -230,27 +305,21 @@ def main(output, robot_ip, gripper_ip, gripper_port,
             policy = workspace.model
             if cfg.training.use_ema:
                 policy = workspace.ema_model
-            policy.num_inference_steps = 16 # DDIM inference iterations
+            policy.num_inference_steps = 16
             obs_pose_rep = cfg.task.pose_repr.obs_pose_repr
             action_pose_repr = cfg.task.pose_repr.action_pose_repr
-
 
             device = torch.device('cuda')
             policy.eval().to(device)
 
-            print("Warming up policy inference")
-            obs = env.get_obs()            
+            obs = env.get_obs()
             episode_start_pose = np.concatenate([
                     obs[f'robot0_eef_pos'],
                     obs[f'robot0_eef_rot_axis_angle']
                 ], axis=-1)[-1]
             
-            v_max = 0.75   # m/s
-            w_max = 0.9    # rad/s
 
-            p_last = obs['robot0_eef_pos'][-1].copy()
-            q_last = R.from_rotvec(obs['robot0_eef_rot_axis_angle'][-1].copy()).as_quat()
-            
+            # Initialize with first action chunk for LiPo
             with torch.no_grad():
                 policy.reset()
                 obs_dict_np = get_real_umi_obs_dict(
@@ -261,50 +330,48 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                     lambda x: torch.from_numpy(x).unsqueeze(0).to(device))
                 result = policy.predict_action(obs_dict)
                 action = result['action_pred'][0].detach().to('cpu').numpy()
-                # assert action.shape[-1] == 16
                 assert action.shape[-1] == 10
                 action = get_real_umi_action(action, obs, action_pose_repr)
-                # assert action.shape[-1] == 10
                 assert action.shape[-1] == 7
                 del result
 
+            print("Waiting to get to the stop button...")
+            time.sleep(3.0)
             print('Ready!')
 
-            while True:
-                # ========== policy control loop ==============
+            while True:                
                 try:
                     # start episode
                     policy.reset()
+                    lipo.reset_log()  # Reset LiPo logs
+                    
                     start_delay = 1.0
                     eval_t_start = time.time() + start_delay
                     t_start = time.monotonic() + start_delay
                     env.start_episode(eval_t_start)
 
-                    if temporal_ensembling:
-                        max_steps = int(max_duration * frequency) + steps_per_inference
-                        temporal_action_buffer = [None] * max_steps
-
-                    # wait for 1/30 sec to get the closest frame actually
-                    # reduces overall latency
                     frame_latency = 1/60
                     precise_wait(eval_t_start - frame_latency, time_func=time.time)
                     print("Started!")
 
                     iter_idx = 0
                     action_log = []
+                    
+                    # LiPo state tracking
+                    prev_optimized_chunk = None
+                    action_chunk_counter = 0
+                    
                     while True:
                         # calculate timing
                         t_cycle_end = t_start + (iter_idx + steps_per_inference) * dt
 
                         # get obs
                         obs = env.get_obs()
-                        # print("Camera:", obs['camera0_rgb'].shape)
                         episode_start_pose = np.concatenate([
                             obs[f'robot0_eef_pos'],
                             obs[f'robot0_eef_rot_axis_angle']
                         ], axis=-1)[-1]
                         obs_timestamps = obs['timestamp']
-                        # print(f'Obs latency {time.time() - obs_timestamps[-1]}')
 
                         # run inference
                         with torch.no_grad():
@@ -317,101 +384,58 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                                 lambda x: torch.from_numpy(x).unsqueeze(0).to(device))
                             result = policy.predict_action(obs_dict)
                             raw_action = result['action_pred'][0].detach().to('cpu').numpy()
-                            action = get_real_umi_action(raw_action, obs, action_pose_repr)
-
-                            g_now = float(action[-1, 6]) if action.ndim == 2 else float(action[6])
-
-                            if temporal_ensembling:
-                                # Scatter predictions into buffers
-                                made_idx = iter_idx
-                                for j, a in enumerate(action):
-                                    t_abs = iter_idx + j
-                                    if 0 <= t_abs < len(temporal_action_buffer):
-                                        if temporal_action_buffer[t_abs] is None:
-                                            temporal_action_buffer[t_abs] = []
-                                        # store (action, made_idx)
-                                        temporal_action_buffer[t_abs].append((a, made_idx))
-
-                            # Execute sequence of smoothed actions (one step per loop when ensembling)
-                            this_target_poses = []
-                            # we'll fill action_timestamps after we know how many poses we kept
-
-                            # Estimate inference latency to align schedule to the sensor clock
-                            inference_latency = time.time() - s
-                            execution_buffer = 0.10
-                            schedule_offset = inference_latency + execution_buffer
-
-                            # We normally execute only 1 step per loop when ensembling
-                            for i in range(steps_per_inference):      # usually 1
-                                t_target = iter_idx + i
-                                if 0 <= t_target < len(temporal_action_buffer) and temporal_action_buffer[t_target]:
-                                    cached_pairs = temporal_action_buffer[t_target]  # list of (action, made_idx)
-
-                                    # Keep only the newest ENSEMBLE_MAX_CANDS by made_idx (recency)
-                                    # cached_pairs may already be roughly ordered, but we sort to be safe.
-                                    cached_pairs = sorted(cached_pairs, key=lambda x: x[1])[-ENSEMBLE_MAX_CANDS:]
-
-                                    acts = [p[0] for p in cached_pairs]          # actions as arrays [x y z rx ry rz g]
-                                    made = np.array([p[1] for p in cached_pairs])  # their generation iter_idx
-
-                                    # Ages in ticks relative to the newest one: newest age = 0
-                                    ages = (made.max() - made).astype(np.float64)
-
-                                    # Exponential weights by age (newest gets the largest weight)
-                                    m = 0.23
-                                    w = np.exp(-m * ages)
-                                    w = w / w.sum()
-
-                                    # Positions: weighted mean
-                                    Ps = np.stack([a[:3] for a in acts], axis=0)
-                                    p_cmd = (Ps * w[:, None]).sum(axis=0)
-
-                                    # Rotations: geodesic mean around q_last
-                                    quats = [R.from_rotvec(a[3:6]).as_quat() for a in acts]
-                                    q_cmd = weighted_mean_quats_around(q_last, quats, w)
-
-                                elif i < len(action):
-                                    # Fallback if no cache yet for this t_target
-                                    p_cmd = action[i][:3]
-                                    q_cmd = R.from_rotvec(action[i][3:6]).as_quat()
-                                else:
-                                    break
-
-                                # SE(3) rate limit around last command
-                                p_safe, q_safe = limit_se3_step(p_last, q_last, p_cmd, q_cmd, v_max, w_max, dt)
-                                p_last, q_last = p_safe, q_safe
-
-                                a_exec = np.zeros_like(action[0])
-                                a_exec[:3]  = p_safe
-                                a_exec[3:6] = R.from_quat(q_safe).as_rotvec()
-                                a_exec[6]   = g_now   # keep gripper smooth across blends
-
-                                this_target_poses.append(a_exec)
-
-                            # Schedule from sensor clock and drop late actions
-                            if len(this_target_poses) > 0:
-                                obs_ts = float(obs_timestamps[-1])
-                                action_timestamps = obs_ts + execution_buffer + dt * np.arange(len(this_target_poses), dtype=np.float64)
-
-                                # late-action filter (keep only actions sufficiently in the future)
-                                action_exec_latency = 0.01
-                                curr_time = time.time()
-                                is_new = action_timestamps > (curr_time + action_exec_latency)
-
-                                if not np.any(is_new):
-                                    # exceeded time budget, still execute *something* (last pose) at next grid time
-                                    this_target_poses = np.asarray(this_target_poses)[[-1]]
-                                    next_step_idx = int(np.ceil((curr_time - eval_t_start) / dt))
-                                    action_timestamps = np.array([eval_t_start + next_step_idx * dt], dtype=np.float64)
-                                else:
-                                    this_target_poses = np.asarray(this_target_poses)[is_new]
-                                    action_timestamps = action_timestamps[is_new]
+                            action_chunk = get_real_umi_action(raw_action, obs, action_pose_repr)
+                            
+                            # Extend action chunk to match LiPo chunk size
+                            if len(action_chunk) < lipo_chunk_size:
+                                # Repeat last action to fill the chunk
+                                last_action = action_chunk[-1:].repeat(lipo_chunk_size - len(action_chunk), axis=0)
+                                extended_action_chunk = np.concatenate([action_chunk, last_action], axis=0)
                             else:
-                                # empty safety fallback (should rarely happen)
-                                this_target_poses = np.asarray([])
-                                action_timestamps = np.asarray([])
+                                extended_action_chunk = action_chunk[:lipo_chunk_size]
+                            
+                            # Apply LiPo smoothing
+                            if prev_optimized_chunk is not None:
+                                smoothed_actions, reference_actions = lipo.solve(
+                                    extended_action_chunk, 
+                                    prev_optimized_chunk, 
+                                    len_past_actions=lipo_blending_horizon
+                                )
+                            else:
+                                smoothed_actions, reference_actions = lipo.solve(
+                                    extended_action_chunk, 
+                                    None, 
+                                    len_past_actions=0
+                                )
+                            
+                            if smoothed_actions is not None:
+                                # Store the optimized chunk for next iteration
+                                prev_optimized_chunk = smoothed_actions.copy()
+                                # Use the first steps_per_inference actions from smoothed chunk
+                                action = smoothed_actions[:steps_per_inference]
+                            else:
+                                # Fallback to original actions if LiPo fails
+                                action = action_chunk[:steps_per_inference]
+                            
+                            action_chunk_counter += 1
+                            
+                            action_timestamps = (np.arange(len(action), dtype=np.float64)) * dt + obs_timestamps[-1]
+                            this_target_poses = action
 
-                            # print('Inference latency:', time.time() - s)
+                            action_exec_latency = 0.01
+                            curr_time = time.time()
+                            is_new = action_timestamps > (curr_time + action_exec_latency)
+
+                            if np.sum(is_new) == 0:
+                                this_target_poses = this_target_poses[[-1]]
+                                next_step_idx = int(np.ceil((curr_time - eval_t_start) / dt))
+                                action_timestamp = eval_t_start + (next_step_idx) * dt
+                                print('Over budget', action_timestamp - curr_time)
+                                action_timestamps = np.array([action_timestamp])
+                            else:
+                                this_target_poses = this_target_poses[is_new]
+                                action_timestamps = action_timestamps[is_new]
+
                             for a, t in zip(this_target_poses, action_timestamps):
                                 a = a.tolist()
                                 action_log.append({
@@ -424,12 +448,13 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                                     'ee_rot_2': a[5]
                                 })
 
-                            # execute one step
+                            # execute actions
                             env.exec_actions(
-                                actions=np.stack(this_target_poses),
-                                timestamps=np.array(action_timestamps),
+                                actions=this_target_poses,
+                                timestamps=action_timestamps,
                                 compensate_latency=True
                             )
+                            print(f"Submitted {len(this_target_poses)} steps of smoothed actions.")
 
                         # visualize
                         episode_id = env.replay_buffer.n_episodes
@@ -477,6 +502,8 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                         iter_idx += steps_per_inference
 
                 except KeyboardInterrupt:
+                    # Print LiPo performance stats
+                    lipo.print_solved_times()
                     print("Interrupted!")
                     # stop robot.
                     env.end_episode()
@@ -488,6 +515,5 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                 
                 print("Stopped.")
 
-# %%
 if __name__ == '__main__':
     main()
