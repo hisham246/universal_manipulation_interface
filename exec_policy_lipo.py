@@ -2,6 +2,7 @@
 Usage:
 (umi): python exec_policy_lipo.py -o output
 """
+# %%
 import sys
 import os
 
@@ -9,6 +10,7 @@ ROOT_DIR = os.path.dirname(os.path.dirname(__file__))
 sys.path.append(ROOT_DIR)
 os.chdir(ROOT_DIR)
 
+# %%
 import os
 import pathlib
 import time
@@ -42,25 +44,6 @@ from umi.real_world.real_inference_util import (get_real_obs_resolution,
 import pandas as pd
 
 OmegaConf.register_new_resolver("eval", eval, replace=True)
-
-@click.command()
-@click.option('--output', '-o', required=True, help='Directory to save recording')
-@click.option('--robot_ip', default='129.97.71.27')
-@click.option('--gripper_ip', default='129.97.71.27')
-@click.option('--gripper_port', type=int, default=4242)
-@click.option('--match_dataset', '-m', default=None, help='Dataset used to overlay and adjust initial condition')
-@click.option('--match_episode', '-me', default=None, type=int, help='Match specific episode from the match dataset')
-@click.option('--match_camera', '-mc', default=0, type=int)
-@click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
-@click.option('--steps_per_inference', '-si', default= 8, type=int, help="Action horizon for inference.")
-@click.option('--max_duration', '-md', default=60, help='Max duration for each epoch in seconds.')
-@click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
-@click.option('--command_latency', '-cl', default=0.01, type=float, help="Latency between receiving SapceMouse command to executing on Robot in Sec.")
-@click.option('-nm', '--no_mirror', is_flag=True, default=False)
-@click.option('-sf', '--sim_fov', type=float, default=None)
-@click.option('-ci', '--camera_intrinsics', type=str, default=None)
-@click.option('--mirror_crop', is_flag=True, default=False)
-@click.option('--mirror_swap', is_flag=True, default=False)
 
 # LiPo
 class ActionLiPo:
@@ -188,6 +171,22 @@ class ActionLiPo:
         else:
             print("No logs available.")
 
+@click.command()
+@click.option('--output', '-o', required=True, help='Directory to save recording')
+@click.option('--robot_ip', default='129.97.71.27')
+@click.option('--gripper_ip', default='129.97.71.27')
+@click.option('--gripper_port', type=int, default=4242)
+@click.option('--match_dataset', '-m', default=None, help='Dataset used to overlay and adjust initial condition')
+@click.option('--match_camera', '-mc', default=0, type=int)
+@click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
+@click.option('--steps_per_inference', '-si', default= 8, type=int, help="Action horizon for inference.")
+@click.option('--max_duration', '-md', default=60, help='Max duration for each epoch in seconds.')
+@click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
+@click.option('-nm', '--no_mirror', is_flag=True, default=False)
+@click.option('-sf', '--sim_fov', type=float, default=None)
+@click.option('-ci', '--camera_intrinsics', type=str, default=None)
+@click.option('--mirror_crop', is_flag=True, default=False)
+@click.option('--mirror_swap', is_flag=True, default=False)
 
 def main(output, robot_ip, gripper_ip, gripper_port,
     match_dataset, match_camera, vis_camera_idx, 
@@ -201,19 +200,26 @@ def main(output, robot_ip, gripper_ip, gripper_port,
     lipo_blending_horizon = 8  # How many steps to blend between chunks
     lipo_time_delay = 0  # Account for inference latency (in timesteps)
     
-    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/surface_wiping_unet_position_control.ckpt'
-    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_pickplace_2.ckpt'
+    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/reaching_ball_multimodal.ckpt'
 
     payload = torch.load(open(ckpt_path, 'rb'), map_location='cpu', pickle_module=dill)
     cfg = payload['cfg']
 
-    cfg._target_ = "diffusion_policy.train_diffusion_unet_image_workspace.TrainDiffusionUnetImageWorkspace"
-    cfg.policy._target_ = "diffusion_policy.diffusion_unet_timm_policy.DiffusionUnetTimmPolicy"
-    cfg.policy.obs_encoder._target_ = "policy_utils.timm_obs_encoder.TimmObsEncoder"
-    cfg.ema._target_ = "policy_utils.ema_model.EMAModel"
-
+    # setup experiment
     dt = 1/frequency
+
     obs_res = get_real_obs_resolution(cfg.task.shape_meta)
+    # load fisheye converter
+    fisheye_converter = None
+    if sim_fov is not None:
+        assert camera_intrinsics is not None
+        opencv_intr_dict = parse_fisheye_intrinsics(
+            json.load(open(camera_intrinsics, 'r')))
+        fisheye_converter = FisheyeRectConverter(
+            **opencv_intr_dict,
+            out_size=obs_res,
+            out_fov=sim_fov
+        )
     
     # Initialize LiPo
     lipo = ActionLiPo(
@@ -226,17 +232,6 @@ def main(output, robot_ip, gripper_ip, gripper_port,
         epsilon_blending=0.02,  # Allow more deviation in blending zone
         epsilon_path=0.003     # Tighter constraint for main trajectory
     )
-
-    fisheye_converter = None
-    if sim_fov is not None:
-        assert camera_intrinsics is not None
-        opencv_intr_dict = parse_fisheye_intrinsics(
-            json.load(open(camera_intrinsics, 'r')))
-        fisheye_converter = FisheyeRectConverter(
-            **opencv_intr_dict,
-            out_size=obs_res,
-            out_fov=sim_fov
-        )
 
     print("steps_per_inference:", steps_per_inference)
     with SharedMemoryManager() as shm_manager:
@@ -313,6 +308,7 @@ def main(output, robot_ip, gripper_ip, gripper_port,
             policy.eval().to(device)
 
             obs = env.get_obs()
+            print("Got observations")
             episode_start_pose = np.concatenate([
                     obs[f'robot0_eef_pos'],
                     obs[f'robot0_eef_rot_axis_angle']
@@ -515,5 +511,6 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                 
                 print("Stopped.")
 
+# %%
 if __name__ == '__main__':
     main()

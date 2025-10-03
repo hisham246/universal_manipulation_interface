@@ -43,27 +43,6 @@ import pandas as pd
 
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
-@click.command()
-@click.option('--output', '-o', required=True, help='Directory to save recording')
-@click.option('--robot_ip', default='129.97.71.27')
-@click.option('--gripper_ip', default='129.97.71.27')
-@click.option('--gripper_port', type=int, default=4242)
-@click.option('--match_dataset', '-m', default=None, help='Dataset used to overlay and adjust initial condition')
-@click.option('--match_episode', '-me', default=None, type=int, help='Match specific episode from the match dataset')
-@click.option('--match_camera', '-mc', default=0, type=int)
-@click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
-@click.option('--steps_per_inference', '-si', default= 1, type=int, help="Action horizon for inference.")
-@click.option('--max_duration', '-md', default=60, help='Max duration for each epoch in seconds.')
-@click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
-@click.option('--command_latency', '-cl', default=0.01, type=float, help="Latency between receiving SapceMouse command to executing on Robot in Sec.")
-@click.option('-nm', '--no_mirror', is_flag=True, default=False)
-@click.option('-sf', '--sim_fov', type=float, default=None)
-@click.option('-ci', '--camera_intrinsics', type=str, default=None)
-@click.option('--mirror_crop', is_flag=True, default=False)
-@click.option('--mirror_swap', is_flag=True, default=False)
-@click.option('--temporal_ensembling', is_flag=True, default=True, help='Enable temporal ensembling for inference.')
-
-
 # quat utilities
 def q_norm(q): return q / (np.linalg.norm(q) + 1e-12)
 def q_conj(q): return np.array([-q[0], -q[1], -q[2], q[3]])
@@ -122,10 +101,28 @@ def limit_se3_step(p_prev, q_prev, p_cmd, q_cmd, v_max, w_max, dt):
         q_new = q_cmd if np.dot(q_prev, q_cmd) >= 0 else -q_cmd
     return p_new, q_norm(q_new)
 
+@click.command()
+@click.option('--output', '-o', required=True, help='Directory to save recording')
+@click.option('--robot_ip', default='129.97.71.27')
+@click.option('--gripper_ip', default='129.97.71.27')
+@click.option('--gripper_port', type=int, default=4242)
+@click.option('--match_dataset', '-m', default=None, help='Dataset used to overlay and adjust initial condition')
+@click.option('--match_camera', '-mc', default=0, type=int)
+@click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
+@click.option('--steps_per_inference', '-si', default= 1, type=int, help="Action horizon for inference.")
+@click.option('--max_duration', '-md', default=60, help='Max duration for each epoch in seconds.')
+@click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
+@click.option('-nm', '--no_mirror', is_flag=True, default=False)
+@click.option('-sf', '--sim_fov', type=float, default=None)
+@click.option('-ci', '--camera_intrinsics', type=str, default=None)
+@click.option('--mirror_crop', is_flag=True, default=False)
+@click.option('--mirror_swap', is_flag=True, default=False)
+@click.option('--temporal_ensembling', is_flag=True, default=True, help='Enable temporal ensembling for inference.')
+
 
 def main(output, robot_ip, gripper_ip, gripper_port,
-    match_dataset, match_camera, vis_camera_idx, steps_per_inference, \
-    max_duration, frequency, no_mirror, sim_fov, camera_intrinsics, \
+    match_dataset, match_camera, vis_camera_idx, steps_per_inference,
+    max_duration, frequency, no_mirror, sim_fov, camera_intrinsics,
     mirror_crop, mirror_swap, temporal_ensembling):
 
     ENSEMBLE_MAX_CANDS = 6
@@ -134,8 +131,7 @@ def main(output, robot_ip, gripper_ip, gripper_port,
     # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_transformer_pickplace.ckpt'
 
     # Diffusion UNet
-    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_pickplace_2.ckpt'
-    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/surface_wiping_unet_position_control.ckpt'
+    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/reaching_ball_multimodal.ckpt'
 
     # Compliance policy unet
     # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_compliance_trial_2.ckpt'

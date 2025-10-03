@@ -429,8 +429,6 @@ class FrankaInterpolationController(mp.Process):
                     # print("command", cmd)
 
                     if cmd == Command.STOP.value:
-                        print("i", i)
-                        print("iter idx", iter_idx)
                         keep_running = False
                         # stop immediately, ignore later commands
                         break

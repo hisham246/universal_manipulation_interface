@@ -1,0 +1,7 @@
+# Kill panda process from remote device
+ssh robohub@labwork4
+password: robohub
+
+docker exec -it uw_panda_robohub /root/docker_entrypoint.sh
+
+sudo kill -9 $(pidof franka_panda_client)

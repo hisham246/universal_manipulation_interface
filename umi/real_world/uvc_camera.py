@@ -11,6 +11,7 @@ from umi.shared_memory.shared_memory_ring_buffer import SharedMemoryRingBuffer
 from umi.shared_memory.shared_memory_queue import SharedMemoryQueue, Full, Empty
 from umi.real_world.video_recorder import VideoRecorder
 from umi.common.usb_util import reset_usb_device
+import copy
 
 class Command(enum.Enum):
     RESTART_PUT = 0
@@ -63,14 +64,33 @@ class UvcCamera(mp.Process):
         examples['timestamp'] = 0.0
         examples['step_idx'] = 0
 
+        # Patch for shared memory problems
+        vis_examples = copy.deepcopy(examples)
+
+        if vis_transform is not None:
+            vis_shape = (720, 960, 3)
+        else:
+            vis_shape = shape + (3,)
+        vis_examples["color"] = np.empty(shape=vis_shape, dtype=np.uint8)
+
         vis_ring_buffer = SharedMemoryRingBuffer.create_from_examples(
             shm_manager=shm_manager,
-            examples=examples if vis_transform is None 
-                else vis_transform(dict(examples)),
+            # examples=examples if vis_transform is None 
+            #     else vis_transform(dict(examples)),
+            examples=vis_examples,
             get_max_k=1,
             get_time_budget=0.2,
             put_desired_frequency=capture_fps
         )
+
+        # vis_ring_buffer = SharedMemoryRingBuffer.create_from_examples(
+        #     shm_manager=shm_manager,
+        #     examples=examples if vis_transform is None 
+        #         else vis_transform(dict(examples)),
+        #     get_max_k=1,
+        #     get_time_budget=0.2,
+        #     put_desired_frequency=capture_fps
+        # )
 
         ring_buffer = SharedMemoryRingBuffer.create_from_examples(
             shm_manager=shm_manager,
