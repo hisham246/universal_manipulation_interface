@@ -67,7 +67,7 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 @click.option('--match_dataset', '-m', default=None, help='Dataset used to overlay and adjust initial condition')
 @click.option('--match_camera', '-mc', default=0, type=int)
 @click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
-@click.option('--steps_per_inference', '-si', default= 8, type=int, help="Action horizon for inference.")
+@click.option('--steps_per_inference', '-si', default= 6, type=int, help="Action horizon for inference.")
 @click.option('--max_duration', '-md', default=60, help='Max duration for each epoch in seconds.')
 @click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
 @click.option('-nm', '--no_mirror', is_flag=True, default=False)
@@ -130,16 +130,16 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                 # init_joints=init_joints,
                 # enable_multi_cam_vis=True,
                 # latency
-                camera_obs_latency=0.145,
-                robot_obs_latency=0.0001,
-                gripper_obs_latency=0.01,
-                robot_action_latency=0.2,
-                gripper_action_latency=0.1,
-                # camera_obs_latency=0.0,
-                # robot_obs_latency=0.0,
-                # gripper_obs_latency=0.0,
-                # robot_action_latency=0.0,
-                # gripper_action_latency=0.0,
+                # camera_obs_latency=0.145,
+                # robot_obs_latency=0.0001,
+                # gripper_obs_latency=0.01,
+                # robot_action_latency=0.2,
+                # gripper_action_latency=0.1,
+                camera_obs_latency=0.0,
+                robot_obs_latency=0.0,
+                gripper_obs_latency=0.0,
+                robot_action_latency=0.0,
+                gripper_action_latency=0.0,
                 # obs
                 camera_obs_horizon=cfg.task.shape_meta.obs.camera0_rgb.horizon,
                 robot_obs_horizon=cfg.task.shape_meta.obs.robot0_eef_pos.horizon,
@@ -180,7 +180,7 @@ def main(output, robot_ip, gripper_ip, gripper_port,
             print(f"Loaded initial frame for {len(episode_first_frame_map)} episodes")
 
             # RTC configuration
-            inference_delay_steps = 2  # Conservative estimate, tune based on measured latency
+            inference_delay_steps = 3  # Conservative estimate, tune based on measured latency
             rtc_schedule = "exp"
             rtc_max_guidance = 5.0
 
@@ -246,7 +246,7 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                 action = get_real_umi_action(raw_action, obs, action_pose_repr)
                 
                 # Store for next RTC iteration (unnormalized 7D actions)
-                prev_action_chunk = action.copy()
+                prev_action_chunk = raw_action.copy()
                 chunk_generation_count += 1
                 
                 inference_time = time.time() - s
@@ -323,7 +323,7 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                             action = get_real_umi_action(raw_action, obs, action_pose_repr)
                             
                             # Store for next RTC iteration
-                            prev_action_chunk = action.copy()
+                            prev_action_chunk = raw_action.copy()
                             chunk_generation_count += 1
                             
                             inference_time = time.time() - s

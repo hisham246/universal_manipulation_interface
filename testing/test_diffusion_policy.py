@@ -228,6 +228,8 @@ class PolicyActionSimulator:
             # Run policy prediction
             result = self.policy.predict_action(obs_dict_torch)
             action_pred = result['action_pred'][0].detach().to('cpu').numpy()
+
+            print(f"Predicted action: {action_pred}")
             
             return action_pred
     
@@ -454,6 +456,35 @@ def animate_predicted_vs_ground_truth(results, episode_name):
         
         gt_point.set_data_3d([gt_pos[0]], [gt_pos[1]], [gt_pos[2]])
         pred_point.set_data_3d([pred_pos[0]], [pred_pos[1]], [pred_pos[2]])
+        
+        # # Create coordinate frames
+        # gt_x, gt_y, gt_z = create_coordinate_frame(gt_pos, original_rotations[frame], scale=0.03)
+        # pred_x, pred_y, pred_z = create_coordinate_frame(pred_pos, predicted_rotations[frame], scale=0.03)
+        
+        # # Draw ground truth coordinate frame (solid colors)
+        # gt_x_arrow = ax.quiver(gt_pos[0], gt_pos[1], gt_pos[2],
+        #                       gt_x[0], gt_x[1], gt_x[2], 
+        #                       color='darkred', alpha=0.8, linewidth=2)
+        # gt_y_arrow = ax.quiver(gt_pos[0], gt_pos[1], gt_pos[2],
+        #                       gt_y[0], gt_y[1], gt_y[2], 
+        #                       color='darkgreen', alpha=0.8, linewidth=2)
+        # gt_z_arrow = ax.quiver(gt_pos[0], gt_pos[1], gt_pos[2],
+        #                       gt_z[0], gt_z[1], gt_z[2], 
+        #                       color='darkblue', alpha=0.8, linewidth=2)
+        
+        # # Draw predicted coordinate frame (lighter colors)
+        # pred_x_arrow = ax.quiver(pred_pos[0], pred_pos[1], pred_pos[2],
+        #                         pred_x[0], pred_x[1], pred_x[2], 
+        #                         color='darkred', alpha=0.6, linewidth=2)
+        # pred_y_arrow = ax.quiver(pred_pos[0], pred_pos[1], pred_pos[2],
+        #                         pred_y[0], pred_y[1], pred_y[2], 
+        #                         color='darkgreen', alpha=0.6, linewidth=2)
+        # pred_z_arrow = ax.quiver(pred_pos[0], pred_pos[1], pred_pos[2],
+        #                         pred_z[0], pred_z[1], pred_z[2], 
+        #                         color='darkblue', alpha=0.6, linewidth=2)
+        
+        # coordinate_arrows.extend([gt_x_arrow, gt_y_arrow, gt_z_arrow,
+        #                          pred_x_arrow, pred_y_arrow, pred_z_arrow])
 
         # Create coordinate frames from QUATs now
         gt_x, gt_y, gt_z = create_coordinate_frame_from_quat(gt_pos,   gt_quats[frame],   scale=0.03)
@@ -577,184 +608,6 @@ def visualize_representation_conversion(results, episode_name):
     plt.tight_layout()
     plt.show()
 
-def simulate_rtc_execution(
-    simulator,
-    episode_dir,
-    inference_delay: int = 2,
-    execute_horizon: int = 4,
-    method: str = "rtc"  # "rtc", "naive", or "flow"
-):
-    """
-    Simulate RTC-style execution on recorded episode.
-    
-    Args:
-        simulator: PolicyActionSimulator instance
-        episode_dir: Path to episode
-        inference_delay: Simulated delay (timesteps)
-        execute_horizon: Actions executed per chunk
-        method: "rtc", "naive", or "flow"
-    """
-    episode_data = simulator.load_episode_data(episode_dir)
-    positions = episode_data['positions']
-    rotations = episode_data['rotations']
-    timestamps = episode_data['timestamps']
-    
-    T = len(positions)
-    H = simulator.action_horizon
-    
-    # Storage
-    all_executed_actions = []
-    all_predicted_chunks = []
-    rtc_metrics = {
-        'pos_continuity': [],  # Position jump at chunk boundary
-        'rot_continuity': [],  # Rotation jump at chunk boundary
-    }
-    
-    # Initialize with first chunk
-    obs_dict, _ = simulator.simulate_obs_processing(episode_data, 0)
-    obs_dict_t = dict_apply(obs_dict, lambda x: torch.from_numpy(x).unsqueeze(0).to(simulator.device))
-    
-    if method == "flow":
-        result = simulator.policy.predict_action_flow(obs_dict_t)
-    else:
-        result = simulator.policy.predict_action(obs_dict_t)
-    
-    current_chunk = result['action'][0].detach().cpu().numpy()  # [H, D]
-    chunk_offset = 0  # Position within current chunk
-    
-    t = 0
-    while t < T:
-        # Should we generate a new chunk?
-        if chunk_offset >= execute_horizon:
-            # Get new observation
-            obs_dict, _ = simulator.simulate_obs_processing(episode_data, t)
-            obs_dict_t = dict_apply(obs_dict, lambda x: torch.from_numpy(x).unsqueeze(0).to(simulator.device))
-            
-            if method == "rtc":
-                # Use RTC with inpainting
-                prev_chunk_tensor = torch.from_numpy(current_chunk).unsqueeze(0).to(simulator.device)
-                result = simulator.policy.realtime_action(
-                    obs_dict_t,
-                    prev_action_chunk=prev_chunk_tensor,
-                    inference_delay=inference_delay,
-                    prefix_attention_horizon=H - execute_horizon,
-                    prefix_attention_schedule="exp",
-                    max_guidance_weight=5.0
-                )
-                new_chunk = result['action'][0].detach().cpu().numpy()
-                
-                # Measure continuity at boundary
-                if chunk_offset >= inference_delay:
-                    # Actions that should match
-                    overlap_old = current_chunk[chunk_offset:min(chunk_offset+5, H)]
-                    overlap_new = new_chunk[chunk_offset:min(chunk_offset+5, H)]
-                    if len(overlap_old) > 0:
-                        pos_jump = np.linalg.norm(overlap_old[0, :3] - overlap_new[0, :3])
-                        rot_jump = np.linalg.norm(overlap_old[0, 3:6] - overlap_new[0, 3:6])
-                        rtc_metrics['pos_continuity'].append(pos_jump)
-                        rtc_metrics['rot_continuity'].append(rot_jump)
-                
-            elif method == "naive":
-                # Naive async: just generate new chunk without attention
-                result = simulator.policy.predict_action_flow(obs_dict_t)
-                new_chunk = result['action'][0].detach().cpu().numpy()
-                
-            else:  # "flow"
-                # Standard flow (no RTC)
-                result = simulator.policy.predict_action_flow(obs_dict_t)
-                new_chunk = result['action'][0].detach().cpu().numpy()
-            
-            # Simulate execution with delay
-            if method in ["rtc", "naive"]:
-                # Take first inference_delay actions from OLD chunk
-                # Then remaining from NEW chunk
-                actions_to_execute = np.concatenate([
-                    current_chunk[chunk_offset:chunk_offset+inference_delay],
-                    new_chunk[chunk_offset+inference_delay:chunk_offset+execute_horizon]
-                ], axis=0)
-            else:
-                # Standard: execute from current chunk
-                actions_to_execute = current_chunk[chunk_offset:chunk_offset+execute_horizon]
-            
-            # Shift new chunk and reset offset
-            current_chunk = np.concatenate([
-                new_chunk[execute_horizon:],
-                np.zeros((execute_horizon, new_chunk.shape[1]))
-            ], axis=0)
-            chunk_offset = 0
-            
-            all_predicted_chunks.append(new_chunk)
-            all_executed_actions.extend(actions_to_execute)
-            t += len(actions_to_execute)
-        else:
-            # Execute from current chunk
-            action = current_chunk[chunk_offset]
-            all_executed_actions.append(action)
-            chunk_offset += 1
-            t += 1
-    
-    return {
-        'executed_actions': np.array(all_executed_actions),
-        'predicted_chunks': all_predicted_chunks,
-        'metrics': rtc_metrics,
-        'ground_truth_positions': positions,
-        'ground_truth_rotations': rotations,
-        'timestamps': timestamps
-    }
-
-def compare_rtc_methods(simulator, episode_dir):
-    """Compare RTC vs naive vs standard flow."""
-    
-    configs = [
-        ("Standard Flow", "flow", 0, 4),
-        ("Naive Async (d=2)", "naive", 1, 4),
-        ("RTC (d=2)", "rtc", 1, 4),
-        ("Naive Async (d=4)", "naive", 2, 4),
-        ("RTC (d=4)", "rtc", 2, 4),
-    ]
-    
-    results_all = {}
-    for name, method, delay, horizon in configs:
-        print(f"\nTesting: {name}")
-        results = simulate_rtc_execution(
-            simulator, episode_dir,
-            inference_delay=delay,
-            execute_horizon=horizon,
-            method=method
-        )
-        results_all[name] = results
-        
-        if method in ["rtc", "naive"] and results['metrics']['pos_continuity']:
-            print(f"  Avg position jump: {np.mean(results['metrics']['pos_continuity']):.6f}m")
-            print(f"  Avg rotation jump: {np.mean(results['metrics']['rot_continuity']):.6f}rad")
-    
-    # Visualize comparison
-    fig, axes = plt.subplots(2, 3, figsize=(18, 10))
-    
-    for idx, (name, result) in enumerate(results_all.items()):
-        row = idx // 3
-        col = idx % 3
-        ax = axes[row, col]
-        
-        executed = result['executed_actions']
-        gt = result['ground_truth_positions']
-        
-        # Plot position error over time
-        min_len = min(len(executed), len(gt))
-        pos_error = np.linalg.norm(executed[:min_len, :3] - gt[:min_len], axis=1)
-        
-        ax.plot(pos_error, label='Position Error')
-        ax.set_title(name)
-        ax.set_xlabel('Timestep')
-        ax.set_ylabel('Position Error (m)')
-        ax.grid(True, alpha=0.3)
-        ax.legend()
-    
-    plt.tight_layout()
-    plt.show()
-    
-    return results_all
-
 def run_policy_simulation(dataset_directory, obs_pose_repr='relative', action_pose_repr='relative', 
                          policy_path=None, obs_horizon=2, action_horizon=8):
     """Run policy simulation on all episodes in directory."""
@@ -775,7 +628,6 @@ def run_policy_simulation(dataset_directory, obs_pose_repr='relative', action_po
         raise ValueError("policy_path must be provided. Set the path to your trained policy checkpoint.")
     
     print(f"Loading policy from: {policy_path}")
-
     try:
         import dill
         import hydra
@@ -796,13 +648,8 @@ def run_policy_simulation(dataset_directory, obs_pose_repr='relative', action_po
         
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         policy.eval().to(device)
-
-        # Derive model dtype/device (handles EMA too)
-        policy_device = next(policy.parameters()).device
-        policy_dtype  = next(policy.parameters()).dtype
-        print(f"[INFO] policy on {policy_device}, dtype={policy_dtype}")
         
-        # print(f"Policy loaded successfully on device: {device}")
+        print(f"Policy loaded successfully on device: {device}")
         
     except Exception as e:
         print(f"Error loading policy: {str(e)}")
@@ -822,139 +669,14 @@ def run_policy_simulation(dataset_directory, obs_pose_repr='relative', action_po
     episode_dir = episode_dirs[0]  # Just take the first episode
     episode_name = os.path.basename(episode_dir)
     print(f"\nProcessing single episode: {episode_name}")
-
-    print("\n" + "="*60)
-    print("TESTING REAL-TIME CHUNKING (RTC)")
-    print("="*60)
-
-    results_comparison = compare_rtc_methods(simulator, episode_dir)
     
     try:
-        # 1) Load one episode and build obs for t=0 (or any t)
-        episode_data = simulator.load_episode_data(episode_dir)
-        t_debug = 0
-        obs_dict, _ = simulator.simulate_obs_processing(episode_data, t_debug)
-
-        # 2) Torch-ify and encode obs (same device as policy)
-        # obs_dict_t = dict_apply(obs_dict, lambda x: torch.from_numpy(x).unsqueeze(0).to(device))
-        # with torch.no_grad():
-        #     global_cond = simulator.policy.obs_encoder(obs_dict_t)  # [B, feat]
-
-        # # 3) Prepare a latent z_t with the right shape [B, H, D]
-        # H = simulator.action_horizon
-        # D = simulator.policy.action_dim if hasattr(simulator.policy, "action_dim") else obs_dict_t['robot0_eef_pos'].shape[-1]
-        # z_t = torch.randn((1, H, D), device=device)
-
-        # # 4) Pick a discrete timestep id (you can try a few)
-        # sched = simulator.policy.noise_scheduler
-        # sched.set_timesteps(getattr(sched.config, "num_train_timesteps", 1000))
-        # t_id = sched.timesteps[0]               # “early” time
-        # # t_id = sched.timesteps[len(sched.timesteps)//2]  # mid
-        # # t_id = sched.timesteps[-1]             # late
-
-        # # 5) Call the flow adapter to get v = eps_hat - x0_hat
-        # flow_adapter = simulator.policy.flow_adapter
-        # with torch.no_grad():
-        #     v_pi = flow_adapter.velocity(z_t, t_id, global_cond)   # [1, H, D]
-
-        # 2) Torch-ify and encode obs (same device as policy)
-        obs_dict_t = dict_apply(
-            obs_dict,
-            lambda x: torch.from_numpy(x).unsqueeze(0).to(device=policy_device, dtype=policy_dtype)
-        )
-
-        with torch.no_grad():
-            global_cond = simulator.policy.obs_encoder(obs_dict_t)
-            # ensure dtype is consistent (most encoders already output float32, but be safe)
-            global_cond = global_cond.to(dtype=policy_dtype, device=policy_device)
-
-        # 3) Prepare a latent z_t with the right shape [B, H, D]
-        # latent with correct dtype/device
-        H = simulator.action_horizon
-        assert hasattr(simulator.policy, "action_dim"), "policy.action_dim missing"
-        D = simulator.policy.action_dim
-        z_t = torch.randn((1, H, D), device=policy_device, dtype=policy_dtype)
-
-        # 4) Pick a discrete timestep id (you can try a few)
-        # scheduler/timestep
-        sched = simulator.policy.noise_scheduler
-        sched.set_timesteps(getattr(simulator.policy, "num_inference_steps", sched.config.num_train_timesteps))
-
-        # 5) Call the flow adapter to get v = eps_hat - x0_hat
-        # If your UNet expects tensor t (common), make sure it's on the right device/dtype
-        t_id_val = int(sched.timesteps[0])
-        t_id = torch.tensor([t_id_val], device=policy_device, dtype=torch.long)
-        # t_id = sched.timesteps[0]
-
-        # Call the flow adapter
-        flow_adapter = simulator.policy.flow_adapter
-        with torch.no_grad():
-            v_pi = flow_adapter.velocity(z_t, t_id, global_cond)
-
-        print("[DEBUG] v_pi shape:", tuple(v_pi.shape))
-        print("[DEBUG] v_pi mean/std:", v_pi.mean().item(), v_pi.std().item())
-
-        print("\n" + "="*60)
-        print("VERIFYING FLOW ADAPTER IMPLEMENTATION")
-        print("="*60)
-
-        # Create dummy inputs
-        z_test = torch.randn(1, 8, 10, device=policy_device, dtype=policy_dtype)
-        t_test = sched.timesteps[0]
-        cond_test = torch.randn(1, policy.obs_feature_dim, device=policy_device, dtype=policy_dtype)
-
-        # Get eps_hat and x0_hat
-        with torch.no_grad():
-            eps_hat, x0_hat = policy.flow_adapter._eps_x0_from_model(z_test, t_test, cond_test)
-            v = policy.flow_adapter.velocity(z_test, t_test, cond_test)
-            
-            v_method1 = x0_hat - eps_hat  # Correct
-            v_method2 = eps_hat - x0_hat  # Wrong
-            
-            print(f"eps_hat norm: {eps_hat.norm().item():.4f}")
-            print(f"x0_hat norm: {x0_hat.norm().item():.4f}")
-            print(f"v (x0-eps) norm: {v_method1.norm().item():.4f}")
-            print(f"v (eps-x0) norm: {v_method2.norm().item():.4f}")
-            print(f"Actual velocity norm: {v.norm().item():.4f}")
-            
-            if torch.allclose(v, v_method1, rtol=1e-5):
-                print("✓ Velocity is CORRECT (x0 - eps)")
-            elif torch.allclose(v, v_method2, rtol=1e-5):
-                print("✗ Velocity is WRONG (eps - x0) - NEEDS FIX!")
-            else:
-                print("? Velocity doesn't match either formula!")
-                
-        print("="*60 + "\n")
-
-        # 6) Optional: visualize velocity over horizon
-        v_np = v_pi.squeeze(0).detach().cpu().numpy()  # [H, D]
-        plt.figure(figsize=(10, 4))
-        for d in range(min(D, 7)):  # plot first few dims
-            plt.plot(v_np[:, d], label=f"dim {d}")
-        plt.title("Flow velocity over action horizon (v = ε̂ - x̂0)")
-        plt.xlabel("horizon step")
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-        plt.tight_layout()
-        plt.show()
         # Run simulation
         results = simulator.process_episode(episode_dir)
 
         # Save predictions to CSV (rotvec format)
         out_dir = os.path.join(dataset_directory, "predictions")
         os.makedirs(out_dir, exist_ok=True)
-        
-        # # Save converted 7D actions (original behavior)
-        # out_csv = os.path.join(out_dir, f"{episode_name}_pred_pose.csv")
-        # save_episode_predictions(results, out_csv_path=out_csv, include_quat=False)
-
-        # # Save quaternions
-        # out_csv_q = os.path.join(out_dir, f"{episode_name}_pred_pose_quat.csv")
-        # save_episode_predictions(results, out_csv_path=out_csv_q, include_quat=True)
-        
-        # # Save raw 10D policy output
-        # out_csv_raw = os.path.join(out_dir, f"{episode_name}_raw_policy_10d.csv")
-        # save_episode_predictions(results, out_csv_path=out_csv_raw, save_raw_policy=True)
 
         out_csv_raw_full = os.path.join(out_dir, f"{episode_name}_raw_policy_10d_full_horizon.csv")
         save_episode_predictions_full_horizon(results, out_csv_path=out_csv_raw_full, save_raw_policy=True)
