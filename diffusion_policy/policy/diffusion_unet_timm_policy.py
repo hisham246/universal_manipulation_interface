@@ -260,6 +260,23 @@ class DiffusionUnetTimmPolicy(BaseImagePolicy):
     #     return z  # still normalized; unnormalize in predict_action
 
     @torch.no_grad()
+    def _fm_ddim_step(self, z_t, t_id, t_id_next, global_cond):
+        # α, σ, η, τ at current/next ids
+        a_t, s_t, eta_t, tau_t = self.flow_adapter._alpha_sigma_eta(int(t_id),   z_t.device, z_t.dtype)
+        a_s, s_s, eta_s, tau_s = self.flow_adapter._alpha_sigma_eta(int(t_id_next), z_t.device, z_t.dtype)
+
+        # model → (ε, x0)
+        v = self.flow_adapter.velocity(z_t, t_id, global_cond)   # your preferred direction
+
+        # Euler in reparametrized state ẑ := z / (α+σ), step by Δη = (η_t - η_s) ≥ 0
+        delta = (eta_t - eta_s)                               # positive along backward ids
+        z_tilde = z_t / (a_t + s_t)
+        z_tilde_next = z_tilde + v * delta
+        z_next = z_tilde_next * (a_s + s_s)
+
+        return z_next, float(tau_t), float(tau_s), v
+
+    @torch.no_grad()
     def sample_chunk_flow(self, global_cond, generator=None, n_steps=None):
         """
         OT flow sampler using forward integration.
@@ -291,22 +308,33 @@ class DiffusionUnetTimmPolicy(BaseImagePolicy):
         
         print(f"\n{'Step':<5} {'t_id':<6} {'time':<8} {'z_norm':<10} {'v_norm':<10} {'x0_norm':<10}")
         print("-" * 60)
+
+        t_seq = self.noise_scheduler.timesteps  # e.g., [45, 42, ..., 0]
+
+        print(f"\n{'Step':<5} {'t':<5} {'t->s':<8} {'|z|':<10} {'|v|':<10} {'τ':<8}")
+        print("-"*60)
+
+        for k in range(len(t_seq)-1):
+            t = int(t_seq[k].item()); s = int(t_seq[k+1].item())
+            z, tau_t, tau_s, v = self._fm_ddim_step(z, t, s, global_cond)
+            if k % max(1, n_steps // 5) == 0 or k == len(t_seq)-2:
+                print(f"{k:<5} {t:<5} {s:<8} {z.norm().item():<10.4f} {v.norm().item():<10.4f} {tau_s:<8.4f}")
         
-        for k, t_id in enumerate(self.noise_scheduler.timesteps):
-            # Get continuous flow time
-            time = self.flow_adapter._discrete_timestep_to_continuous_time(t_id, z.device).item()
+        # for k, t_id in enumerate(self.noise_scheduler.timesteps):
+        #     # Get continuous flow time
+        #     time = self.flow_adapter._discrete_timestep_to_continuous_time(t_id, z.device).item()
             
-            # Get velocity and intermediate predictions
-            eps_hat, x0_hat = self.flow_adapter._eps_x0_from_model(z, t_id, global_cond)
-            v = self.flow_adapter.velocity(z, t_id, global_cond)
+        #     # Get velocity and intermediate predictions
+        #     eps_hat, x0_hat = self.flow_adapter._eps_x0_from_model(z, t_id, global_cond)
+        #     v = self.flow_adapter.velocity(z, t_id, global_cond)
             
-            # Euler integration step
-            z = z + dt * v
+        #     # Euler integration step
+        #     z = z + dt * v
             
-            # Print progress
-            if k % max(1, n_steps // 5) == 0 or k == n_steps - 1:
-                print(f"{k:<5} {t_id.item():<6} {time:<8.4f} {z.norm().item():<10.4f} "
-                    f"{v.norm().item():<10.4f} {x0_hat.norm().item():<10.4f}")
+        #     # Print progress
+        #     if k % max(1, n_steps // 5) == 0 or k == n_steps - 1:
+        #         print(f"{k:<5} {t_id.item():<6} {time:<8.4f} {z.norm().item():<10.4f} "
+        #             f"{v.norm().item():<10.4f} {x0_hat.norm().item():<10.4f}")
         
         print(f"\nFinal z (clean): norm={z.norm().item():.4f}")
         print(f"{'='*60}\n")
@@ -474,35 +502,77 @@ class DiffusionUnetTimmPolicy(BaseImagePolicy):
         
         print(f"\n{'Step':<5} {'t_id':<5} {'time':<8} {'z_before':<10} {'v_norm':<10} {'z_after':<10} {'guidance':<10}")
         print("-" * 75)
-        
-        for k, t_id in enumerate(self.noise_scheduler.timesteps):
-            # Get continuous time for this timestep
-            time = self.flow_adapter._discrete_timestep_to_continuous_time(t_id, z.device)
-            time_val = time.item()
-            
-            z_norm_before = z.norm().item()
-            
-            # Compute guided velocity
-            v_guided = self._pinv_corrected_velocity(
-                z, t_id, global_cond, y_prev, weights, time_val, max_guidance_weight
+
+        t_seq = self.noise_scheduler.timesteps
+        print(f"\n{'Step':<5} {'t':<5} {'s':<5} {'tau':<8} {'z_before':<10} {'|v_base|':<10} {'|v_corr|':<10} {'z_after':<10} {'guidance':<10}")
+        print("-"*95)
+
+        for k in range(len(t_seq)-1):
+            t = int(t_seq[k].item()); s = int(t_seq[k+1].item())
+
+            # --- before norms
+            z_before = z.norm().item()
+
+            # base FM/DDIM proposal
+            z_prop, tau_t, tau_s, v_base = self._fm_ddim_step(z, t, s, global_cond)
+
+            # ΠGDM correction at current state/time τ_t
+            v_corr = self._pinv_corrected_velocity(
+                z, torch.tensor(t), global_cond, y_prev, weights, tau_t, max_guidance_weight
             )
+
+            # Δη = (η_t-η_s) = (τ_s-τ_t)
+            delta = (tau_s - tau_t)
+
+            # apply correction in reparam space (same as your code)
+            a_t, s_t, _, _ = self.flow_adapter._alpha_sigma_eta(t, z.device, z.dtype)
+            a_s, s_s, _, _ = self.flow_adapter._alpha_sigma_eta(s, z.device, z.dtype)
+            z_tilde = z / (a_t + s_t)
+            z_tilde_corr = z_tilde + v_corr * delta
+            z = (z_tilde_corr * (a_s + s_s)).detach()
+
+            # --- after norms
+            z_after = z.norm().item()
+
+            # guidance weight (same formula you use in _pinv_corrected_velocity)
+            inv_r2 = (tau_t**2 + (1 - tau_t)**2) / ((1 - tau_t)**2)
+            c = (1 - tau_t) / max(tau_t, 1e-8)   # protect τ=0
+            guidance = min(c * inv_r2, max_guidance_weight)
+
+            if k % max(1, n_steps // 10) == 0 or k == len(t_seq)-2:
+                print(f"{k:<5} {t:<5} {s:<5} {tau_t:<8.4f} {z_before:<10.4f} "
+                    f"{v_base.norm().item():<10.4f} {v_corr.norm().item():<10.4f} "
+                    f"{z_after:<10.4f} {guidance:<10.4f}")
+
+        
+        # for k, t_id in enumerate(self.noise_scheduler.timesteps):
+        #     # Get continuous time for this timestep
+        #     time = self.flow_adapter._discrete_timestep_to_continuous_time(t_id, z.device)
+        #     time_val = time.item()
             
-            v_norm = v_guided.norm().item()
+        #     z_norm_before = z.norm().item()
             
-            # Euler step
-            z = (z + dt * v_guided).detach()
+        #     # Compute guided velocity
+        #     v_guided = self._pinv_corrected_velocity(
+        #         z, t_id, global_cond, y_prev, weights, time_val, max_guidance_weight
+        #     )
             
-            z_norm_after = z.norm().item()
+        #     v_norm = v_guided.norm().item()
             
-            # Print every few steps
-            if k % max(1, n_steps // 10) == 0 or k == n_steps - 1:
-                # Get guidance weight for display
-                inv_r2 = (time_val**2 + (1 - time_val)**2) / ((1 - time_val)**2)
-                c = (1 - time_val) / (time_val)
-                guidance_weight = min(c * inv_r2, max_guidance_weight)
+        #     # Euler step
+        #     z = (z + dt * v_guided).detach()
+            
+        #     z_norm_after = z.norm().item()
+            
+        #     # Print every few steps
+        #     if k % max(1, n_steps // 10) == 0 or k == n_steps - 1:
+        #         # Get guidance weight for display
+        #         inv_r2 = (time_val**2 + (1 - time_val)**2) / ((1 - time_val)**2)
+        #         c = (1 - time_val) / (time_val)
+        #         guidance_weight = min(c * inv_r2, max_guidance_weight)
                 
-                print(f"{k:<5} {t_id.item():<5} {time_val:<8.4f} {z_norm_before:<10.4f} "
-                    f"{v_norm:<10.4f} {z_norm_after:<10.4f} {guidance_weight:<10.4f}")
+        #         print(f"{k:<5} {t_id.item():<5} {time_val:<8.4f} {z_norm_before:<10.4f} "
+        #             f"{v_norm:<10.4f} {z_norm_after:<10.4f} {guidance_weight:<10.4f}")
         
         print(f"\nFinal z norm: {z.norm().item():.4f}")
         print(f"{'='*60}\n")
@@ -597,7 +667,6 @@ class DiffusionUnetTimmPolicy(BaseImagePolicy):
         c = (1 - time) / (time)
         guidance_weight = min(c * inv_r2, max_guidance_weight)
 
-        
         # Return corrected velocity
         return v_t.detach() + guidance_weight * pinv_correction
     

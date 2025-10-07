@@ -10,30 +10,49 @@ class DiffusionAsFlow:
         self.scheduler = noise_scheduler
         assert pred_type in ("epsilon", "sample")
         self.pred_type = pred_type
-        self.max_time = 0.999
+        # self.max_time = 0.999
+
+    def _alpha_sigma_eta(self, t_id, device, dtype):
+        ab = self.scheduler.alphas_cumprod.to(device=device, dtype=dtype)  # [T]
+        a  = ab[t_id].sqrt()
+        s  = (1.0 - ab[t_id]).sqrt()
+        eta = s / (a + s)                 # ∈(0,1), decreases toward data
+        tau = 1.0 - eta                   # ∈(0,1), increases toward data
+        return a, s, eta, tau
 
     def _discrete_timestep_to_continuous_time(self, t_id, device):
-        """
-        Convert discrete scheduler timestep to continuous flow time ∈ [0, 1].
-        
-        DDIM: t_id ∈ [45, 42, ..., 3, 0] (backward)
-        Flow time: time ∈ [0.1, 0.16, ..., 0.94, 1.0] (forward)
-        
-        Formula: time = 1 - (t_id / num_train_timesteps)
-        - t_id=45 → time=0.1 (mostly noise, start)
-        - t_id=0  → time=1.0 (clean data, end)
-        """
+        # Keep signature, but now return τ = 1 - η
         if torch.is_tensor(t_id):
             t_id_int = t_id.item() if t_id.ndim == 0 else t_id[0].item()
         else:
             t_id_int = int(t_id)
+        _, _, _, tau = self._alpha_sigma_eta(t_id_int, device, torch.float32)
+        # tau = float(min(max(tau, 0.0), self.max_time))
+
+        return torch.tensor(tau, dtype=torch.float32, device=device)
+
+    # def _discrete_timestep_to_continuous_time(self, t_id, device):
+    #     """
+    #     Convert discrete scheduler timestep to continuous flow time ∈ [0, 1].
         
-        num_train_timesteps = self.scheduler.config.num_train_timesteps
-        time = 1.0 - (t_id_int / num_train_timesteps)
+    #     DDIM: t_id ∈ [45, 42, ..., 3, 0] (backward)
+    #     Flow time: time ∈ [0.1, 0.16, ..., 0.94, 1.0] (forward)
+        
+    #     Formula: time = 1 - (t_id / num_train_timesteps)
+    #     - t_id=45 → time=0.1 (mostly noise, start)
+    #     - t_id=0  → time=1.0 (clean data, end)
+    #     """
+    #     if torch.is_tensor(t_id):
+    #         t_id_int = t_id.item() if t_id.ndim == 0 else t_id[0].item()
+    #     else:
+    #         t_id_int = int(t_id)
+        
+    #     num_train_timesteps = self.scheduler.config.num_train_timesteps
+    #     time = 1.0 - (t_id_int / num_train_timesteps)
 
-        time = min(max(time, 0.0), self.max_time)  # Clamp to [0, max_time]
+    #     time = min(max(time, 0.0), self.max_time)  # Clamp to [0, max_time]
 
-        return torch.tensor(time, dtype=torch.float32, device=device)
+    #     return torch.tensor(time, dtype=torch.float32, device=device)
 
     def _eps_x0_from_model(self, z_t, t_id, global_cond):
         """
