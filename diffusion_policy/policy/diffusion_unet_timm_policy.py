@@ -1,3 +1,4 @@
+import sched
 from typing import Dict
 import torch
 import torch.nn as nn
@@ -13,6 +14,36 @@ from diffusion_policy.model.diffusion.mask_generator import LowdimMaskGenerator
 from diffusion_policy.model.vision.timm_obs_encoder import TimmObsEncoder
 from diffusion_policy.common.pytorch_util import dict_apply
 from diffusion_policy.common.flow_adapter import DiffusionAsFlow
+
+def taus_from_scheduler(scheduler, device, dtype):
+    """
+    Return τ for every id in `scheduler.timesteps`, mirroring diffusers' handling of the last step.
+    τ = 1 - η, where η = s/(a+s), a = sqrt(ᾱ), s = sqrt(1-ᾱ).
+    """
+    # Gather ᾱ on target device/dtype
+    ab_full = scheduler.alphas_cumprod.to(device=device, dtype=dtype)  # [T_train]
+    tids = scheduler.timesteps.to(device='cpu')  # ids used for this inference pass
+    taus = []
+
+    # Identify the last inference id
+    last_id = int(tids[-1].item()) if len(tids) > 0 else 0
+    use_final = bool(getattr(scheduler.config, "set_alpha_to_one", False))
+    fa = getattr(scheduler, "final_alpha_cumprod", None)  # e.g., 1.0 for DDIM
+
+    for t in tids.tolist():
+        if use_final and t == last_id and (fa is not None):
+            ab_t = torch.as_tensor(fa, device=device, dtype=dtype)
+        else:
+            ab_t = ab_full[int(t)]
+        # numerics
+        ab_t = torch.clamp(ab_t, 1e-12, 1.0)  # keep in (0,1]
+        a = torch.sqrt(ab_t)
+        s = torch.sqrt(torch.clamp(1.0 - ab_t, 0.0, 1.0))
+        eta = s / (a + s + 1e-12)
+        tau = 1.0 - eta
+        taus.append(tau)
+
+    return torch.stack(taus)  # [len(timesteps)]
 
 class DiffusionUnetTimmPolicy(BaseImagePolicy):
     def __init__(self, 
@@ -235,30 +266,6 @@ class DiffusionUnetTimmPolicy(BaseImagePolicy):
         return loss
     
     # Flow Policy
-    # @torch.no_grad()
-    # def sample_chunk_flow(self, global_cond, generator=None, n_steps=None):
-    #     """
-    #     Deterministic flow sampler.
-    #     Iterates reverse diffusion indices (high->low) and uses z <- z - (1/n) * v,
-    #     with v = (ε - x0), which is equivalent to stepping + (x0 - ε).
-    #     Returns a normalized action chunk [B, H, D].
-    #     """
-    #     if n_steps is None: n_steps = self.flow_n_steps
-    #     B = global_cond.shape[0]
-    #     H, D = self.action_horizon, self.action_dim
-
-    #     # Start from standard Normal in normalized action space
-    #     z = torch.randn((B, H, D), dtype=self.dtype, device=global_cond.device, generator=generator)
-
-    #     # Use the SAME discrete scheduler timesteps you already use for DDIM/DDPM
-    #     self.noise_scheduler.set_timesteps(n_steps)
-    #     for k, t_id in enumerate(self.noise_scheduler.timesteps):
-    #         # one Euler step on the flow ODE
-    #         v = self.flow_adapter.velocity(z, t_id, global_cond)   # [B,H,D]
-    #         z = z + (1.0 / n_steps) * v
-
-    #     return z  # still normalized; unnormalize in predict_action
-
     @torch.no_grad()
     def _fm_ddim_step(self, z_t, t_id, t_id_next, global_cond):
         # α, σ, η, τ at current/next ids
@@ -292,52 +299,52 @@ class DiffusionUnetTimmPolicy(BaseImagePolicy):
 
         # Get scheduler timesteps (backward: 45→0)
         self.noise_scheduler.set_timesteps(n_steps)
-        
-        # dt for flow integration
-        dt = 1.0 / n_steps
-        
-        print(f"\n{'='*60}")
-        print(f"FLOW SAMPLING DEBUG")
-        print(f"{'='*60}")
-        print(f"n_steps: {n_steps}, dt: {dt:.4f}")
-        print(f"Initial z (noise): norm={z.norm().item():.4f}")
-        
-        timesteps = self.noise_scheduler.timesteps
-        print(f"Timesteps: {timesteps[:3].cpu().numpy()}...{timesteps[-3:].cpu().numpy()}")
-        print(f"Direction: {'BACKWARD' if timesteps[0] > timesteps[-1] else 'FORWARD'}")
-        
-        print(f"\n{'Step':<5} {'t_id':<6} {'time':<8} {'z_norm':<10} {'v_norm':<10} {'x0_norm':<10}")
-        print("-" * 60)
 
-        t_seq = self.noise_scheduler.timesteps  # e.g., [45, 42, ..., 0]
+        t_seq = self.noise_scheduler.timesteps
+        taus  = taus_from_scheduler(self.noise_scheduler, device=z.device, dtype=z.dtype)   # [N]
+        # Build ᾱ sequence aligned with t_seq, applying the same final override as diffusers
+        ab_full = self.noise_scheduler.alphas_cumprod.to(z.device, z.dtype)
+        ab_seq = []
+        last_id = int(t_seq[-1].item())
+        use_final = bool(getattr(self.noise_scheduler.config, "set_alpha_to_one", False))
+        fa = getattr(self.noise_scheduler, "final_alpha_cumprod", None)
+        for tid in t_seq.tolist():
+            if use_final and tid == last_id and (fa is not None):
+                ab_seq.append(torch.as_tensor(fa, device=z.device, dtype=z.dtype))
+            else:
+                ab_seq.append(ab_full[int(tid)])
+        ab_seq = torch.stack(ab_seq)  # [N]
 
-        print(f"\n{'Step':<5} {'t':<5} {'t->s':<8} {'|z|':<10} {'|v|':<10} {'τ':<8}")
-        print("-"*60)
+        def _as_from_ab(ab):
+            ab = torch.clamp(ab, 1e-12, 1.0)
+            a  = ab.sqrt()
+            s  = torch.sqrt(torch.clamp(1.0 - ab, 0.0, 1.0))
+            return a, s
 
         for k in range(len(t_seq)-1):
-            t = int(t_seq[k].item()); s = int(t_seq[k+1].item())
-            z, tau_t, tau_s, v = self._fm_ddim_step(z, t, s, global_cond)
-            if k % max(1, n_steps // 5) == 0 or k == len(t_seq)-2:
-                print(f"{k:<5} {t:<5} {s:<8} {z.norm().item():<10.4f} {v.norm().item():<10.4f} {tau_s:<8.4f}")
-        
-        # for k, t_id in enumerate(self.noise_scheduler.timesteps):
-        #     # Get continuous flow time
-        #     time = self.flow_adapter._discrete_timestep_to_continuous_time(t_id, z.device).item()
-            
-        #     # Get velocity and intermediate predictions
-        #     eps_hat, x0_hat = self.flow_adapter._eps_x0_from_model(z, t_id, global_cond)
-        #     v = self.flow_adapter.velocity(z, t_id, global_cond)
-            
-        #     # Euler integration step
-        #     z = z + dt * v
-            
-        #     # Print progress
-        #     if k % max(1, n_steps // 5) == 0 or k == n_steps - 1:
-        #         print(f"{k:<5} {t_id.item():<6} {time:<8.4f} {z.norm().item():<10.4f} "
-        #             f"{v.norm().item():<10.4f} {x0_hat.norm().item():<10.4f}")
-        
-        print(f"\nFinal z (clean): norm={z.norm().item():.4f}")
-        print(f"{'='*60}\n")
+            t = int(t_seq[k].item())
+            s = int(t_seq[k+1].item())
+            tau_t = float(taus[k].item())
+            tau_s = float(taus[k+1].item())
+
+            # ᾱ→(a,s) for current/next ids, using the overridden sequence
+            a_t, s_t = _as_from_ab(ab_seq[k])
+            a_s, s_s = _as_from_ab(ab_seq[k+1])
+
+            # Δη = η_t - η_s = (τ_s - τ_t)  (positive along backward ids)
+            delta_eta = (tau_s - tau_t)
+
+            # velocity from your adapter at id t
+            t_b = torch.full((z.shape[0],), t, dtype=torch.long, device=z.device)
+            v = self.flow_adapter.velocity(z, t_b, global_cond)   # [B,H,D]
+
+            # FM/DDIM step in reparametrized space ẑ = z / (a+σ)
+            z_before = z.norm().item()
+            z_tilde = z / (a_t + s_t)
+            z_tilde_next = z_tilde + v * delta_eta
+            z = (z_tilde_next * (a_s + s_s)).detach()
+            z_after = z.norm().item()
+
         
         return z  # normalized; unnormalize in predict_action
 
@@ -352,107 +359,7 @@ class DiffusionUnetTimmPolicy(BaseImagePolicy):
 
         return {'action': action_pred, 'action_pred': action_pred}
     
-    # def realtime_action(
-    #     self,
-    #     obs_dict: Dict[str, torch.Tensor],
-    #     prev_action_chunk: torch.Tensor,
-    #     inference_delay: int,
-    #     prefix_attention_horizon: int,
-    #     prefix_attention_schedule: str = "exp",
-    #     max_guidance_weight: float = 5.0,
-    #     n_steps: int = None,
-    # ) -> Dict[str, torch.Tensor]:
-    #     """Real-time chunking with inpainting."""
-    #     if n_steps is None:
-    #         n_steps = self.flow_n_steps
-        
-    #     nobs = self.normalizer.normalize(obs_dict)
-    #     global_cond = self.obs_encoder(nobs)
-    #     B = global_cond.shape[0]
-    #     H, D = self.action_horizon, self.action_dim
-        
-    #     # Normalize previous chunk
-    #     y_prev = self.normalizer['action'].normalize(prev_action_chunk)
-        
-    #     # Compute soft masking weights
-    #     weights = self._get_prefix_weights(
-    #         inference_delay, 
-    #         prefix_attention_horizon, 
-    #         H, 
-    #         prefix_attention_schedule
-    #     )
-        
-    #     # Start from noise
-    #     z = torch.randn((B, H, D), dtype=self.dtype, device=self.device)
-
-    #     print(f"\n{'='*60}")
-    #     print(f"FLOW INTEGRATION DEBUG (prediction_type={self.noise_scheduler.config.prediction_type})")
-    #     print(f"{'='*60}")
-    #     print(f"n_steps: {n_steps}, dt: {1.0/n_steps:.4f}")
-    #     print(f"Initial z (noise) norm: {z.norm().item():.4f}")
-        
-    #     # Flow integration with guidance
-    #     self.noise_scheduler.set_timesteps(n_steps)
-    #     dt = 1.0 / n_steps
-
-    #     timesteps = self.noise_scheduler.timesteps.cpu().numpy()
-    #     print(f"Timesteps: {timesteps[:3]}...{timesteps[-3:]}")
-    #     print("Timesteps length:", len(timesteps))
-    #     print(f"Direction: {'HIGH→LOW (backward)' if timesteps[0] > timesteps[-1] else 'LOW→HIGH (forward)'}")
-
-    #     alphas = self.noise_scheduler.alphas_cumprod.cpu().numpy()
-    #     print(f"\nAlpha_bar at first timestep ({timesteps[0]}): {alphas[timesteps[0]]:.6f}")
-    #     print(f"Alpha_bar at last timestep ({timesteps[-1]}): {alphas[timesteps[-1]]:.6f}")
-        
-    #     for k, t_id in enumerate(self.noise_scheduler.timesteps):
-    #         # tau = k / n_steps
-            
-    #         alpha_bar_t = self.noise_scheduler.alphas_cumprod[t_id].item()
-    #         tau = alpha_bar_t  # 0 at noise, ~1 at data
-
-    #         # Check what the model predicts
-    #         with torch.no_grad():
-    #             eps_hat, x0_hat = self.flow_adapter._eps_x0_from_model(
-    #                 z, t_id, global_cond
-    #             )
-    #             v = self.flow_adapter.velocity(z, t_id, global_cond)
-            
-    #         z_norm_before = z.norm().item()
-    #         eps_norm = eps_hat.norm().item()
-    #         x0_norm = x0_hat.norm().item()
-    #         v_norm = v.norm().item()
-            
-    #         # Compute guided velocity
-    #         v_guided = self._pinv_corrected_velocity(
-    #             z, t_id, global_cond, y_prev, weights, tau, max_guidance_weight
-    #         )
-            
-    #         # Euler step and detach to break graph
-    #         z = (z + dt * v_guided).detach()
-            
-    #         z_norm_after = z.norm().item()
-            
-    #         # Print row
-    #         print(f"{k:<5} {t_id.item():<5} {tau:<7.4f} {alpha_bar_t:<10.6f} {z_norm_before:<8.4f} {eps_norm:<9.4f} {x0_norm:<8.4f} {v_norm:<8.4f} {z_norm_after:<8.4f}")
-            
-    #         # # Compute guided velocity
-    #         # v_guided = self._pinv_corrected_velocity(
-    #         #     z, t_id, global_cond, y_prev, weights, tau, max_guidance_weight
-    #         # )
-            
-    #         # # Euler step and detach to break graph
-    #         # z = (z + dt * v_guided).detach()
-
-    #         # if k in [0, n_steps//2, n_steps-1]:
-    #         #     print(f"  After step (z + dt*v): {z.norm().item():.4f}")
-        
-    #     print(f"\nFinal z norm: {z.norm().item():.4f}")
-    #     print(f"Expected range for normalized actions: ~1-2")
-    #     print(f"{'='*60}\n")
-    #     # Unnormalize
-    #     action_pred = self.normalizer['action'].unnormalize(z)
-    #     return {'action': action_pred, 'action_pred': action_pred}
-
+    @torch.no_grad()
     def realtime_action(
         self,
         obs_dict: Dict[str, torch.Tensor],
@@ -463,165 +370,88 @@ class DiffusionUnetTimmPolicy(BaseImagePolicy):
         max_guidance_weight: float = 5.0,
         n_steps: int = None,
     ) -> Dict[str, torch.Tensor]:
-        """Real-time chunking with inpainting."""
         if n_steps is None:
             n_steps = self.flow_n_steps
-        
+
+        # Encode + normalize
         nobs = self.normalizer.normalize(obs_dict)
         global_cond = self.obs_encoder(nobs)
         B = global_cond.shape[0]
         H, D = self.action_horizon, self.action_dim
-        
-        # Normalize previous chunk
         y_prev = self.normalizer['action'].normalize(prev_action_chunk)
-        
-        # Compute soft masking weights
+
+        # weights for guidance
         weights = self._get_prefix_weights(
-            inference_delay, 
-            prefix_attention_horizon, 
-            H, 
-            prefix_attention_schedule
+            inference_delay, prefix_attention_horizon, H, prefix_attention_schedule
         )
-        
-        # Start from noise
-        z = torch.randn((B, H, D), dtype=self.dtype, device=self.device)
 
-        print(f"\n{'='*60}")
-        print(f"RTC FLOW INTEGRATION (prediction_type={self.noise_scheduler.config.prediction_type})")
-        print(f"{'='*60}")
-        
-        # Flow integration with guidance
-        self.noise_scheduler.set_timesteps(n_steps)
-        dt = 1.0 / n_steps
+        # init latent on the correct device/dtype
+        z = torch.randn((B, H, D), dtype=self.dtype, device=global_cond.device)
 
-        timesteps = self.noise_scheduler.timesteps
-        print(f"n_steps: {n_steps}, dt: {dt:.4f}")
-        print(f"Timesteps: {timesteps[:3].cpu().numpy()}...{timesteps[-3:].cpu().numpy()}")
-        print(f"Direction: {'BACKWARD (high→low)' if timesteps[0] > timesteps[-1] else 'FORWARD (low→high)'}")
-        print(f"Initial z norm: {z.norm().item():.4f}")
-        
-        print(f"\n{'Step':<5} {'t_id':<5} {'time':<8} {'z_before':<10} {'v_norm':<10} {'z_after':<10} {'guidance':<10}")
-        print("-" * 75)
+        # Scheduler timesteps and taus
+        sched = self.noise_scheduler
+        sched.set_timesteps(n_steps)
+        t_seq = sched.timesteps
+        taus  = taus_from_scheduler(sched, device=z.device, dtype=z.dtype)  # [N]
 
-        t_seq = self.noise_scheduler.timesteps
-        print(f"\n{'Step':<5} {'t':<5} {'s':<5} {'tau':<8} {'z_before':<10} {'|v_base|':<10} {'|v_corr|':<10} {'z_after':<10} {'guidance':<10}")
-        print("-"*95)
+        # Build ᾱ sequence aligned with t_seq, honoring set_alpha_to_one/final_alpha_cumprod
+        ab_full = sched.alphas_cumprod.to(z.device, z.dtype)
+        ab_seq = []
+        last_id = int(t_seq[-1].item())
+        use_final = bool(getattr(sched.config, "set_alpha_to_one", False))
+        fa = getattr(sched, "final_alpha_cumprod", None)
 
+        for tid in t_seq.tolist():
+            if use_final and tid == last_id and (fa is not None):
+                ab_seq.append(torch.as_tensor(fa, device=z.device, dtype=z.dtype))
+            else:
+                ab_seq.append(ab_full[int(tid)])
+        ab_seq = torch.stack(ab_seq)  # [N]
+
+        def _as_from_ab(ab_t: torch.Tensor):
+            ab_t = torch.clamp(ab_t, 1e-12, 1.0)
+            a = ab_t.sqrt()
+            s = torch.sqrt(torch.clamp(1.0 - ab_t, 0.0, 1.0))
+            return a, s
+
+        # FM/DDIM + ΠGDM in the same (a,s,τ) geometry as sample_chunk_flow
         for k in range(len(t_seq)-1):
             t = int(t_seq[k].item()); s = int(t_seq[k+1].item())
+            tau_t = float(taus[k].item()); tau_s = float(taus[k+1].item())
+            delta_eta = tau_s - tau_t  # Δη
 
-            # --- before norms
+            # before
             z_before = z.norm().item()
 
-            # base FM/DDIM proposal
-            z_prop, tau_t, tau_s, v_base = self._fm_ddim_step(z, t, s, global_cond)
+            # (a,s) for current/next indices from ab_seq
+            a_t, s_t = _as_from_ab(ab_seq[k])
+            a_s, s_s = _as_from_ab(ab_seq[k+1])
 
-            # ΠGDM correction at current state/time τ_t
+            # base velocity at id t (device-safe long tensor)
+            t_b = torch.full((B,), t, dtype=torch.long, device=z.device)
+            v_base = self.flow_adapter.velocity(z, t_b, global_cond)
+
+            # ΠGDM correction at τ_t (pass the same t_b; _pinv_... expects torch.LongTensor for t_id)
             v_corr = self._pinv_corrected_velocity(
-                z, torch.tensor(t), global_cond, y_prev, weights, tau_t, max_guidance_weight
+                z, t_b, global_cond, y_prev, weights, tau_t, max_guidance_weight
             )
 
-            # Δη = (η_t-η_s) = (τ_s-τ_t)
-            delta = (tau_s - tau_t)
-
-            # apply correction in reparam space (same as your code)
-            a_t, s_t, _, _ = self.flow_adapter._alpha_sigma_eta(t, z.device, z.dtype)
-            a_s, s_s, _, _ = self.flow_adapter._alpha_sigma_eta(s, z.device, z.dtype)
+            # Reparam step in ẑ with corrected velocity
             z_tilde = z / (a_t + s_t)
-            z_tilde_corr = z_tilde + v_corr * delta
+            z_tilde_corr = z_tilde + v_corr * delta_eta
             z = (z_tilde_corr * (a_s + s_s)).detach()
 
-            # --- after norms
+            # after + guidance number (same formula as inside _pinv_corrected_velocity)
             z_after = z.norm().item()
-
-            # guidance weight (same formula you use in _pinv_corrected_velocity)
-            inv_r2 = (tau_t**2 + (1 - tau_t)**2) / ((1 - tau_t)**2)
-            c = (1 - tau_t) / max(tau_t, 1e-8)   # protect τ=0
+            inv_r2 = (tau_t**2 + (1 - tau_t)**2) / ((1 - tau_t)**2 + 1e-12)
+            c = (1 - tau_t) / (tau_t + 1e-12)
             guidance = min(c * inv_r2, max_guidance_weight)
 
-            if k % max(1, n_steps // 10) == 0 or k == len(t_seq)-2:
-                print(f"{k:<5} {t:<5} {s:<5} {tau_t:<8.4f} {z_before:<10.4f} "
-                    f"{v_base.norm().item():<10.4f} {v_corr.norm().item():<10.4f} "
-                    f"{z_after:<10.4f} {guidance:<10.4f}")
 
-        
-        # for k, t_id in enumerate(self.noise_scheduler.timesteps):
-        #     # Get continuous time for this timestep
-        #     time = self.flow_adapter._discrete_timestep_to_continuous_time(t_id, z.device)
-        #     time_val = time.item()
-            
-        #     z_norm_before = z.norm().item()
-            
-        #     # Compute guided velocity
-        #     v_guided = self._pinv_corrected_velocity(
-        #         z, t_id, global_cond, y_prev, weights, time_val, max_guidance_weight
-        #     )
-            
-        #     v_norm = v_guided.norm().item()
-            
-        #     # Euler step
-        #     z = (z + dt * v_guided).detach()
-            
-        #     z_norm_after = z.norm().item()
-            
-        #     # Print every few steps
-        #     if k % max(1, n_steps // 10) == 0 or k == n_steps - 1:
-        #         # Get guidance weight for display
-        #         inv_r2 = (time_val**2 + (1 - time_val)**2) / ((1 - time_val)**2)
-        #         c = (1 - time_val) / (time_val)
-        #         guidance_weight = min(c * inv_r2, max_guidance_weight)
-                
-        #         print(f"{k:<5} {t_id.item():<5} {time_val:<8.4f} {z_norm_before:<10.4f} "
-        #             f"{v_norm:<10.4f} {z_norm_after:<10.4f} {guidance_weight:<10.4f}")
-        
-        print(f"\nFinal z norm: {z.norm().item():.4f}")
-        print(f"{'='*60}\n")
-        
-        # Unnormalize
+        # unnormalize back to action space
         action_pred = self.normalizer['action'].unnormalize(z)
         return {'action': action_pred, 'action_pred': action_pred}
 
-    # def _pinv_corrected_velocity(
-    #     self,
-    #     z_t: torch.Tensor,
-    #     t_id: torch.Tensor,
-    #     global_cond: torch.Tensor,
-    #     y_prev: torch.Tensor,
-    #     weights: torch.Tensor,
-    #     tau: float,
-    #     max_guidance_weight: float
-    # ) -> torch.Tensor:
-    #     """ΠGDM-corrected velocity (Eq. 2 from paper)."""
-    #     B, H, D = z_t.shape
-        
-    #     # Detach global_cond to prevent graph accumulation
-    #     global_cond_detached = global_cond.detach()
-        
-    #     # Create fresh tensor with gradients enabled
-    #     z_t_copy = z_t.detach().clone().requires_grad_(True)
-        
-    #     # Compute velocity and denoiser with isolated graph
-    #     with torch.enable_grad():
-    #         v_t = self.flow_adapter.velocity(z_t_copy, t_id, global_cond_detached)
-    #         x_1_hat = z_t_copy + (1 - tau) * v_t
-        
-    #     # Weighted error
-    #     error = (y_prev - x_1_hat) * weights[None, :, None]  # [B, H, D]
-        
-    #     # Compute gradient
-    #     if z_t_copy.grad is not None:
-    #         z_t_copy.grad.zero_()
-        
-    #     x_1_hat.backward(error)
-    #     pinv_correction = z_t_copy.grad.detach().clone()
-        
-    #     # Guidance weight (Eq. 4)
-    #     inv_r2 = (tau**2 + (1 - tau)**2) / ((1 - tau)**2 + 1e-12)
-    #     c = (1 - tau) / (tau + 1e-12)
-    #     guidance_weight = min(c * inv_r2, max_guidance_weight)
-        
-    #     # Return corrected velocity (everything detached)
-    #     return v_t.detach() + guidance_weight * pinv_correction
 
     def _pinv_corrected_velocity(
         self,
@@ -699,56 +529,4 @@ class DiffusionUnetTimmPolicy(BaseImagePolicy):
     
     def forward(self, batch):
         return self.compute_loss(batch)
-    
-    # def _pinv_corrected_velocity(
-    #     self,
-    #     z_t: torch.Tensor,
-    #     t_id: torch.Tensor,
-    #     global_cond: torch.Tensor,
-    #     y_prev: torch.Tensor,
-    #     weights: torch.Tensor,
-    #     max_guidance_weight: float
-    # ) -> torch.Tensor:
-    #     """ΠGDM-corrected velocity with consistent time variable."""
-    #     B, H, D = z_t.shape
-        
-    #     # Derive tau from the scheduler's timestep
-    #     # For DDPM: tau = t_id / num_train_timesteps where tau=1 is noise, tau=0 is data
-    #     num_train_timesteps = self.noise_scheduler.config.num_train_timesteps
-    #     if isinstance(t_id, torch.Tensor):
-    #         tau = t_id.float().mean().item() / num_train_timesteps
-    #     else:
-    #         tau = float(t_id) / num_train_timesteps
-        
-    #     # Now tau matches the noise level: tau=1 at pure noise, tau=0 at clean data
 
-    #     # print(f"[DEBUG] t_id: {t_id if not isinstance(t_id, torch.Tensor) else t_id.item()}, "
-    #     #   f"num_train_timesteps: {num_train_timesteps}, tau: {tau:.4f}")
-
-    #     global_cond_detached = global_cond.detach()
-    #     z_t_copy = z_t.detach().clone().requires_grad_(True)
-        
-    #     with torch.enable_grad():
-    #         v_t = self.flow_adapter.velocity(z_t_copy, t_id, global_cond_detached)
-    #         # Predict clean data: x_0 = x_tau - v * tau
-    #         x_0_hat = z_t_copy - v_t * tau
-        
-    #     # Error against target clean data
-    #     error = (y_prev - x_0_hat) * weights[None, :, None]
-        
-    #     if z_t_copy.grad is not None:
-    #         z_t_copy.grad.zero_()
-        
-    #     x_0_hat.backward(error)
-    #     pinv_correction = z_t_copy.grad.detach().clone()
-        
-    #     # Guidance weight (corrected formulas from GitHub issue)
-    #     inv_r2 = (tau**2 + (1 - tau)**2) / (tau**2 + 1e-12)
-    #     c = tau / ((1 - tau) + 1e-12)
-    #     guidance_weight = min(c * inv_r2, max_guidance_weight)
-
-    #     # print(f"[DEBUG] c={c:.4f}, inv_r2={inv_r2:.4f}, "
-    #     #       f"weight={guidance_weight:.4f}, max={max_guidance_weight}")
-        
-    #     # Subtract correction (from GitHub issue)
-    #     return v_t.detach() - guidance_weight * pinv_correction
