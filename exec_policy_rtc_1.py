@@ -26,7 +26,7 @@ ROOT_DIR = os.path.dirname(os.path.dirname(__file__))
 sys.path.append(ROOT_DIR)
 os.chdir(ROOT_DIR)
 
-from collections import deque
+import os
 import pathlib
 import time
 from multiprocessing.managers import SharedMemoryManager
@@ -67,8 +67,8 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 @click.option('--match_dataset', '-m', default=None, help='Dataset used to overlay and adjust initial condition')
 @click.option('--match_camera', '-mc', default=0, type=int)
 @click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
-@click.option('--steps_per_inference', '-si', default=5, type=int, help="Action horizon for inference.")
-@click.option('--max_duration', '-md', default=120, help='Max duration for each epoch in seconds.')
+@click.option('--steps_per_inference', '-si', default= 6, type=int, help="Action horizon for inference.")
+@click.option('--max_duration', '-md', default=60, help='Max duration for each epoch in seconds.')
 @click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
 @click.option('-nm', '--no_mirror', is_flag=True, default=False)
 @click.option('-sf', '--sim_fov', type=float, default=None)
@@ -90,9 +90,7 @@ def main(output, robot_ip, gripper_ip, gripper_port,
     # Diffusion UNet
     # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_pickplace_2.ckpt'
     ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/reaching_ball_multimodal.ckpt'
-    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/reaching_ball_unet.ckpt'
-    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/surface_wiping_unet_position_control.ckpt'
-    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/surface_wiping_unet_position_control_16_actions.ckpt'
+
 
     # Compliance policy unet
     # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_compliance_trial_2.ckpt'
@@ -135,8 +133,8 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                 # camera_obs_latency=0.145,
                 # robot_obs_latency=0.0001,
                 # gripper_obs_latency=0.01,
-                # robot_action_latency=0.0,
-                # gripper_action_latency=0.0,
+                # robot_action_latency=0.2,
+                # gripper_action_latency=0.1,
                 camera_obs_latency=0.0,
                 robot_obs_latency=0.0,
                 gripper_obs_latency=0.0,
@@ -184,16 +182,11 @@ def main(output, robot_ip, gripper_ip, gripper_port,
             # RTC configuration
             rtc_schedule = "exp"
             rtc_max_guidance = 5.0
-            DELAY_BUF_LEN = 8          # small rolling buffer for conservative delay forecast
-            S_MIN = steps_per_inference  # minimum execution horizon per loop
-            delay_buf = deque([S_MIN], maxlen=DELAY_BUF_LEN)
+            inference_delay_steps = 2
 
             # Track previous chunk for RTC
             prev_action_chunk = None
             chunk_generation_count = 0
-
-            action_log = []
-            actions_executed_from_current_chunk = 0
 
             # creating model
             # have to be done after fork to prevent 
@@ -215,7 +208,6 @@ def main(output, robot_ip, gripper_ip, gripper_port,
             policy.eval().to(device)
 
             print("Warming up policy inference")
-
             obs = env.get_obs()            
             episode_start_pose = np.concatenate([
                     obs[f'robot0_eef_pos'],
@@ -232,49 +224,29 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                     lambda x: torch.from_numpy(x).unsqueeze(0).to(device))
                 
                 if use_rtc and prev_action_chunk is not None and chunk_generation_count > 0:
-                    H, D = policy.action_horizon, policy.action_dim
-
-                    # How many actions from the current chunk have already been executed?
-                    s_exec = max(actions_executed_from_current_chunk, 0)
-                    s_exec = min(s_exec, H)  # clamp
-
-                    # Conservative delay forecast d = max(buffer) and clamp to feasible region
-                    d_forecast = max(delay_buf) if len(delay_buf) > 0 else S_MIN
-                    d_forecast = int(max(0, min(d_forecast, s_exec, H - s_exec)))
-
-                    # Prefix attention horizon = H - s (ignore the soon-to-be-executed suffix)
-                    prefix_attn_h = max(0, H - s_exec)
-
-                    # Slice remaining prefix from previous chunk and right-pad to H
-                    remaining = prev_action_chunk[s_exec:]                      # [H - s_exec, D]
-                    if remaining.shape[0] < H:
-                        pad = np.zeros((H - remaining.shape[0], remaining.shape[1]), dtype=remaining.dtype)
-                        remaining = np.concatenate([remaining, pad], axis=0)    # [H, D]
-
-                    prev_chunk_tensor = torch.from_numpy(remaining).unsqueeze(0).to(device)
-
+                    # RTC inference with inpainting
+                    prev_chunk_tensor = torch.from_numpy(prev_action_chunk).unsqueeze(0).to(device)
+                    
                     result = policy.realtime_action(
                         obs_dict,
                         prev_action_chunk=prev_chunk_tensor,
-                        inference_delay=d_forecast,
-                        prefix_attention_horizon=prefix_attn_h,
+                        inference_delay=inference_delay_steps,
+                        prefix_attention_horizon=policy.action_horizon - steps_per_inference,
                         prefix_attention_schedule=rtc_schedule,
                         max_guidance_weight=rtc_max_guidance,
                         n_steps=policy.num_inference_steps
                     )
-                    print(f"[RTC] Chunk {chunk_generation_count}: d={d_forecast}, s={s_exec}, H={H}, prefix_h={prefix_attn_h}")
+                    print(f"[RTC] Generated chunk {chunk_generation_count} with d={inference_delay_steps}")
                 else:
                     # First chunk or standard inference
                     result = policy.predict_action(obs_dict)
-                    print(f"[Standard] Initial chunk")
+                    print(f"[Standard] Generated initial chunk")
 
                 raw_action = result['action_pred'][0].detach().to('cpu').numpy()
                 action = get_real_umi_action(raw_action, obs, action_pose_repr)
-
-                # Store for next RTC iteration
-                delay_buf.append(max(actions_executed_from_current_chunk, 0))
+                
+                # Store for next RTC iteration (unnormalized 7D actions)
                 prev_action_chunk = raw_action.copy()
-                actions_executed_from_current_chunk = 0
                 chunk_generation_count += 1
                 
                 inference_time = time.time() - s
@@ -327,61 +299,42 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                                 episode_start_pose=episode_start_pose)
                             obs_dict = dict_apply(obs_dict_np, 
                                 lambda x: torch.from_numpy(x).unsqueeze(0).to(device))
-
+                            
                             if use_rtc and prev_action_chunk is not None and chunk_generation_count > 0:
-                                H, D = policy.action_horizon, policy.action_dim
-
-                                # Actions executed so far from current chunk => execution horizon s
-                                s_exec = max(actions_executed_from_current_chunk, 0)
-                                s_exec = min(s_exec, H)
-
-                                # Conservative delay forecast d
-                                d_forecast = max(delay_buf) if len(delay_buf) > 0 else S_MIN
-                                d_forecast = int(max(0, min(d_forecast, s_exec, H - s_exec)))
-
-                                # Prefix attention horizon = H - s
-                                prefix_attn_h = max(0, H - s_exec)
-
-                                # Remaining prefix from the *previous* chunk, right-padded to H
-                                remaining = prev_action_chunk[s_exec:]                   # [H - s_exec, D]
-                                if remaining.shape[0] < H:
-                                    pad = np.zeros((H - remaining.shape[0], remaining.shape[1]), dtype=remaining.dtype)
-                                    remaining = np.concatenate([remaining, pad], axis=0)
-                                prev_chunk_tensor = torch.from_numpy(remaining).unsqueeze(0).to(device)
-
+                                # RTC inference with inpainting
+                                prev_chunk_tensor = torch.from_numpy(prev_action_chunk).unsqueeze(0).to(device)
+                                
                                 result = policy.realtime_action(
                                     obs_dict,
                                     prev_action_chunk=prev_chunk_tensor,
-                                    inference_delay=d_forecast,
-                                    prefix_attention_horizon=prefix_attn_h,
+                                    inference_delay=inference_delay_steps,
+                                    prefix_attention_horizon=policy.action_horizon - steps_per_inference,
                                     prefix_attention_schedule=rtc_schedule,
                                     max_guidance_weight=rtc_max_guidance,
                                     n_steps=policy.num_inference_steps
                                 )
-                                print(f"[RTC] Generated chunk {chunk_generation_count} with d={d_forecast}, s={s_exec}, prefix_h={prefix_attn_h}")
+                                print(f"[RTC] Generated chunk {chunk_generation_count} with d={inference_delay_steps}")
                             else:
+                                # First chunk or standard inference
                                 result = policy.predict_action(obs_dict)
                                 print(f"[Standard] Generated initial chunk")
-
+                            
                             raw_action = result['action_pred'][0].detach().to('cpu').numpy()
                             action = get_real_umi_action(raw_action, obs, action_pose_repr)
-
-                            # === NEW: after a new chunk is produced, log observed delay (s_exec), then reset ===
-                            delay_buf.append(max(actions_executed_from_current_chunk, 0))
+                            
+                            # Store for next RTC iteration
                             prev_action_chunk = raw_action.copy()
                             chunk_generation_count += 1
-                            actions_executed_from_current_chunk = 0
-
+                            
                             inference_time = time.time() - s
                             print(f"Inference took {inference_time*1000:.1f}ms")
 
                             action_timestamps = (np.arange(len(action), dtype=np.float64)) * dt + obs_timestamps[-1]
                             this_target_poses = action
-                            actions_to_execute = len(this_target_poses)
 
-                        # action_exec_latency = 0.01
+                        action_exec_latency = 0.01
                         curr_time = time.time()
-                        is_new = action_timestamps > (curr_time)
+                        is_new = action_timestamps > (curr_time + action_exec_latency)
                         # print("Is new:", is_new)
                         if np.sum(is_new) == 0:
                             # exceeded time budget, still do something
@@ -391,13 +344,9 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                             action_timestamp = eval_t_start + (next_step_idx) * dt
                             print('Over budget', action_timestamp - curr_time)
                             action_timestamps = np.array([action_timestamp])
-                            actions_to_execute = 1
                         else:
                             this_target_poses = this_target_poses[is_new]
                             action_timestamps = action_timestamps[is_new]
-                            actions_to_execute = len(this_target_poses)
-
-                        actions_executed_from_current_chunk += actions_to_execute
 
                         for a, t in zip(this_target_poses, action_timestamps):
                             a = a.tolist()

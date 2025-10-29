@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 # Load the CSV file
 # file_path_state = "/home/hisham246/uwaterloo/polymetis_reaching/robot_state_2_episode_4.csv"
-file_path_action = "/home/hisham246/uwaterloo/reaching_rtc/policy_actions_episode_0.csv"
+file_path_action = "/home/hisham246/uwaterloo/test_rtc_reaching/policy_actions_episode_2.csv"
 # state = pd.read_csv(file_path_state)
 action = pd.read_csv(file_path_action)
 

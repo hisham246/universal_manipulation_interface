@@ -323,7 +323,7 @@ class DiffusionUnetTimmPolicy(BaseImagePolicy):
 
         for k in range(len(t_seq)-1):
             t = int(t_seq[k].item())
-            s = int(t_seq[k+1].item())
+            # s = int(t_seq[k+1].item())
             tau_t = float(taus[k].item())
             tau_s = float(taus[k+1].item())
 
@@ -339,13 +339,12 @@ class DiffusionUnetTimmPolicy(BaseImagePolicy):
             v = self.flow_adapter.velocity(z, t_b, global_cond)   # [B,H,D]
 
             # FM/DDIM step in reparametrized space ẑ = z / (a+σ)
-            z_before = z.norm().item()
+            # z_before = z.norm().item()
             z_tilde = z / (a_t + s_t)
             z_tilde_next = z_tilde + v * delta_eta
             z = (z_tilde_next * (a_s + s_s)).detach()
-            z_after = z.norm().item()
+            # z_after = z.norm().item()
 
-        
         return z  # normalized; unnormalize in predict_action
 
     def predict_action_flow(self, obs_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
@@ -421,7 +420,7 @@ class DiffusionUnetTimmPolicy(BaseImagePolicy):
             delta_eta = tau_s - tau_t  # Δη
 
             # before
-            z_before = z.norm().item()
+            # z_before = z.norm().item()
 
             # (a,s) for current/next indices from ab_seq
             a_t, s_t = _as_from_ab(ab_seq[k])
@@ -429,7 +428,7 @@ class DiffusionUnetTimmPolicy(BaseImagePolicy):
 
             # base velocity at id t (device-safe long tensor)
             t_b = torch.full((B,), t, dtype=torch.long, device=z.device)
-            v_base = self.flow_adapter.velocity(z, t_b, global_cond)
+            # v_base = self.flow_adapter.velocity(z, t_b, global_cond)
 
             # ΠGDM correction at τ_t (pass the same t_b; _pinv_... expects torch.LongTensor for t_id)
             v_corr = self._pinv_corrected_velocity(
@@ -442,10 +441,10 @@ class DiffusionUnetTimmPolicy(BaseImagePolicy):
             z = (z_tilde_corr * (a_s + s_s)).detach()
 
             # after + guidance number (same formula as inside _pinv_corrected_velocity)
-            z_after = z.norm().item()
-            inv_r2 = (tau_t**2 + (1 - tau_t)**2) / ((1 - tau_t)**2 + 1e-12)
-            c = (1 - tau_t) / (tau_t + 1e-12)
-            guidance = min(c * inv_r2, max_guidance_weight)
+            # z_after = z.norm().item()
+            # inv_r2 = (tau_t**2 + (1 - tau_t)**2) / ((1 - tau_t)**2 + 1e-12)
+            # c = (1 - tau_t) / (tau_t + 1e-12)
+            # guidance = min(c * inv_r2, max_guidance_weight)
 
 
         # unnormalize back to action space
@@ -469,7 +468,7 @@ class DiffusionUnetTimmPolicy(BaseImagePolicy):
         Args:
             time: Continuous flow time ∈ [0, 1], where 0=noise, 1=data
         """
-        B, H, D = z_t.shape
+        # B, H, D = z_t.shape
         
         # Detach to prevent graph accumulation
         global_cond_detached = global_cond.detach()

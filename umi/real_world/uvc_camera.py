@@ -75,8 +75,6 @@ class UvcCamera(mp.Process):
 
         vis_ring_buffer = SharedMemoryRingBuffer.create_from_examples(
             shm_manager=shm_manager,
-            # examples=examples if vis_transform is None 
-            #     else vis_transform(dict(examples)),
             examples=vis_examples,
             get_max_k=1,
             get_time_budget=0.2,
