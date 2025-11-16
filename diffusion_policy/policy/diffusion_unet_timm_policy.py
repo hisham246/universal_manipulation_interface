@@ -490,11 +490,41 @@ class DiffusionUnetTimmPolicy(BaseImagePolicy):
         
         x_1_hat.backward(error)
         pinv_correction = z_t_copy.grad.detach().clone()
+
+        #     z_t_copy = z_t.detach().clone().requires_grad_(True)
+        #     v_t = self.flow_adapter.velocity(z_t_copy, t_id, global_cond_detached)
+        #     x_1_hat = z_t_copy + (1 - time) * v_t
+
+        #     error = (y_prev - x_1_hat) * weights[None, :, None]
+
+        #     (pinv_correction,) = torch.autograd.grad(
+        #         outputs=x_1_hat,
+        #         inputs=z_t_copy,
+        #         grad_outputs=error,
+        #         retain_graph=False,
+        #         create_graph=False
+        #     )
+
+        # pinv_correction = pinv_correction.detach()
         
         # Guidance weight (Pokle Eq. 2 and Eq. 4)
-        inv_r2 = (time**2 + (1 - time)**2) / ((1 - time)**2)
-        c = (1 - time) / (time)
-        guidance_weight = min(c * inv_r2, max_guidance_weight)
+        # inv_r2 = (time**2 + (1 - time)**2) / ((1 - time)**2)
+        # c = (1 - time) / (time)
+        # gw_raw = c * inv_r2
+        # guidance_weight = min(gw_raw, max_guidance_weight)
+
+        eps = 1e-12
+        r2 = time**2 + (1 - time)**2
+        gw_raw = (1 - time) / ((time + eps) * (r2 + eps))
+        guidance_weight = min(gw_raw, max_guidance_weight)
+        # print(f"[RTC-guidance] tau={time:.3f}, gw_raw={gw_raw:.3f}, gw_clipped={guidance_weight:.3f}")
+
+        if getattr(self, "debug_rtc", False):
+            if not hasattr(self, "_rtc_guidance_log"):
+                self._rtc_guidance_log = []
+            self._rtc_guidance_log.append(
+                (float(time), float(gw_raw), float(guidance_weight))
+            )
 
         # Return corrected velocity
         return v_t.detach() + guidance_weight * pinv_correction
@@ -524,6 +554,11 @@ class DiffusionUnetTimmPolicy(BaseImagePolicy):
         
         # Zero out everything past 'end'
         w = torch.where(indices >= end, torch.zeros_like(w), w)
+
+        if getattr(self, "debug_rtc", False):
+            if not hasattr(self, "_rtc_W_log"):
+                self._rtc_W_log = []
+            self._rtc_W_log.append(w.detach().cpu().numpy())
         return w
     
     def forward(self, batch):

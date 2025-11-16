@@ -65,8 +65,8 @@ class FrankaInterface:
 
     def update_impedance_gains(self, Kx: np.ndarray, Kxd: np.ndarray):
         self.server.update_current_policy({
-            'Kx': Kx.tolist(),
-            'Kxd': Kxd.tolist()
+            'Kx_tgt_vec': Kx.tolist(),
+            'Kxd_tgt_vec': Kxd.tolist()
         })
     
     def close(self):
@@ -136,8 +136,9 @@ class FrankaVariableImpedanceController(mp.Process):
         example = {
             'cmd': Command.SERVOL.value,
             'target_pose': np.zeros((6,), dtype=np.float64),
-            'Kx': np.zeros((6,), dtype=np.float64),
-            'Kxd': np.zeros((6,), dtype=np.float64),
+            # 'Kx': np.zeros((6,), dtype=np.float64),
+            # 'Kxd': np.zeros((6,), dtype=np.float64),
+            'target_stiffness': np.zeros((3,), dtype=np.float64),
             'duration': 0.0,
             'target_time': 0.0
         }
@@ -212,7 +213,7 @@ class FrankaVariableImpedanceController(mp.Process):
         self.stop()
 
     # ========= command methods ============
-    def servoL(self, pose, duration=0.1):
+    def servoL(self, pose, stiffness, duration=0.1):
         """
         duration: desired time to reach pose
         """
@@ -224,30 +225,23 @@ class FrankaVariableImpedanceController(mp.Process):
         message = {
             'cmd': Command.SERVOL.value,
             'target_pose': pose,
+            'target_stiffness': stiffness,
             'duration': duration
         }
         self.input_queue.put(message)
     
-    def schedule_waypoint(self, pose, target_time):
+    def schedule_waypoint(self, pose, stiffness, target_time):
         pose = np.array(pose)
         assert pose.shape == (6,)
 
         message = {
             'cmd': Command.SCHEDULE_WAYPOINT.value,
             'target_pose': pose,
+            'target_stiffness': stiffness,
             'target_time': target_time
         }
         self.input_queue.put(message)
-    
-    def set_impedance(self, Kx: np.ndarray, Kxd: np.ndarray):
-        assert self.is_alive()
-        assert Kx.shape == (6,) and Kxd.shape == (6,)
-        message = {
-            'cmd': Command.SET_IMPEDANCE.value,
-            'Kx': Kx,
-            'Kxd': Kxd
-        }
-        self.input_queue.put(message)
+
     
     # ========= receive APIs =============
     def get_state(self, k=None, out=None):
@@ -326,6 +320,7 @@ class FrankaVariableImpedanceController(mp.Process):
             # main loop
             dt = 1. / self.frequency
             curr_pose = robot.get_ee_pose()
+            target_stiffness = None
 
             # use monotonic time to make sure the control loop never go backward
             curr_t = time.monotonic()
@@ -370,6 +365,12 @@ class FrankaVariableImpedanceController(mp.Process):
                 else:
                     if self.verbose:
                         print("[FrankaPositionalController] IK failed. Joint position not logged.")
+
+                if target_stiffness is not None:
+                    rot_stiffness = np.array([30.0, 30.0, 30.0], dtype=np.float64)
+                    total_stiffness = np.concatenate([target_stiffness, rot_stiffness])          # (6,)
+                    total_damping   = 2.0 * 0.707 * np.sqrt(total_stiffness)  # (6,)
+                    robot.update_impedance_gains(total_stiffness, total_damping)
 
                 # send command to robot
                 robot.update_desired_ee_pose(ee_pose)
@@ -456,6 +457,7 @@ class FrankaVariableImpedanceController(mp.Process):
                             print("[FrankaVariableImpedanceController] New pose target:{} duration:{}s".format(
                                 target_pose, duration))
                     elif cmd == Command.SCHEDULE_WAYPOINT.value:
+                        target_stiffness = command['target_stiffness']
                         target_pose = command['target_pose']
                         target_time = float(command['target_time'])
                         # translate global time to monotonic time
@@ -468,15 +470,6 @@ class FrankaVariableImpedanceController(mp.Process):
                             last_waypoint_time=last_waypoint_time
                         )
                         last_waypoint_time = target_time
-                    elif cmd == Command.SET_IMPEDANCE.value:
-                        self.curr_Kx = command['Kx']
-                        self.curr_Kxd = command['Kxd']
-                        robot.update_impedance_gains(Kx=self.curr_Kx, Kxd=self.curr_Kxd)
-                        if self.verbose:
-                            print("[FrankaVariableImpedanceController] Updated impedance gains.")
-                    else:
-                        keep_running = False
-                        break
 
                 # regulate frequency
                 t_wait_util = t_start + (iter_idx + 1) * dt
@@ -500,3 +493,24 @@ class FrankaVariableImpedanceController(mp.Process):
 
             if self.verbose:
                 print(f"[FrankaVariableImpedanceController] Disconnected from robot: {self.robot_ip}")
+
+
+    # def set_impedance(self, Kx: np.ndarray, Kxd: np.ndarray):
+    #     assert self.is_alive()
+    #     assert Kx.shape == (6,) and Kxd.shape == (6,)
+    #     message = {
+    #         'cmd': Command.SET_IMPEDANCE.value,
+    #         'Kx': Kx,
+    #         'Kxd': Kxd
+    #     }
+    #     self.input_queue.put(message)
+
+    # elif cmd == Command.SET_IMPEDANCE.value:
+    #     self.curr_Kx = command['Kx']
+    #     self.curr_Kxd = command['Kxd']
+    #     robot.update_impedance_gains(Kx=self.curr_Kx, Kxd=self.curr_Kxd)
+    #     if self.verbose:
+    #         print("[FrankaVariableImpedanceController] Updated impedance gains.")
+    # else:
+    #     keep_running = False
+    #     break

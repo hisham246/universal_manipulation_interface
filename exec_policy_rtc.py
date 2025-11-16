@@ -152,8 +152,8 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                 mirror_swap=mirror_swap,
                 # dev_video_path='/dev/video13',
                 # action
-                max_pos_speed=1.5,
-                max_rot_speed=2.0,
+                max_pos_speed=3.5,
+                max_rot_speed=3.5,
                 # robot_type=robot_type,
                 shm_manager=shm_manager) as env:
             cv2.setNumThreads(2)
@@ -210,9 +210,10 @@ def main(output, robot_ip, gripper_ip, gripper_port,
             obs_pose_rep = cfg.task.pose_repr.obs_pose_repr
             action_pose_repr = cfg.task.pose_repr.action_pose_repr
 
-
             device = torch.device('cuda')
             policy.eval().to(device)
+
+            policy.debug_rtc = True
 
             print("Warming up policy inference")
 
@@ -236,11 +237,17 @@ def main(output, robot_ip, gripper_ip, gripper_port,
 
                     # How many actions from the current chunk have already been executed?
                     s_exec = max(actions_executed_from_current_chunk, 0)
-                    s_exec = min(s_exec, H)  # clamp
+                    # s_exec = min(s_exec, H)  # clamp
+                    s_exec = min(s_exec, H - 1)
 
                     # Conservative delay forecast d = max(buffer) and clamp to feasible region
+                    # d_forecast = max(delay_buf) if len(delay_buf) > 0 else S_MIN
+                    # d_forecast = int(max(0, min(d_forecast, s_exec, H - s_exec)))
+
+                    # Enforce H - s > d so we get a non-empty decay region
                     d_forecast = max(delay_buf) if len(delay_buf) > 0 else S_MIN
-                    d_forecast = int(max(0, min(d_forecast, s_exec, H - s_exec)))
+                    d_forecast = min(d_forecast, s_exec, H - s_exec - 2)  # <-- note the -1
+                    d_forecast = int(max(0, d_forecast))
 
                     # Prefix attention horizon = H - s (ignore the soon-to-be-executed suffix)
                     prefix_attn_h = max(0, H - s_exec)
@@ -336,8 +343,12 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                                 s_exec = min(s_exec, H)
 
                                 # Conservative delay forecast d
+                                # d_forecast = max(delay_buf) if len(delay_buf) > 0 else S_MIN
+                                # d_forecast = int(max(0, min(d_forecast, s_exec, H - s_exec)))
+
                                 d_forecast = max(delay_buf) if len(delay_buf) > 0 else S_MIN
-                                d_forecast = int(max(0, min(d_forecast, s_exec, H - s_exec)))
+                                d_forecast = min(d_forecast, s_exec, H - s_exec - 2)  # <-- note the -1
+                                d_forecast = int(max(0, d_forecast))
 
                                 # Prefix attention horizon = H - s
                                 prefix_attn_h = max(0, H - s_exec)
@@ -366,7 +377,7 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                             raw_action = result['action_pred'][0].detach().to('cpu').numpy()
                             action = get_real_umi_action(raw_action, obs, action_pose_repr)
 
-                            # === NEW: after a new chunk is produced, log observed delay (s_exec), then reset ===
+                            # After a new chunk is produced, log observed delay (s_exec), then reset
                             delay_buf.append(max(actions_executed_from_current_chunk, 0))
                             prev_action_chunk = raw_action.copy()
                             chunk_generation_count += 1
@@ -467,6 +478,16 @@ def main(output, robot_ip, gripper_ip, gripper_port,
 
                 except KeyboardInterrupt:
                     print("Interrupted!")
+
+                    if hasattr(policy, "_rtc_W_log"):
+                        np.save(os.path.join(output, "rtc_W_log.npy"), np.array(policy._rtc_W_log, dtype=object))
+                        print(f"Saved W logs with {len(policy._rtc_W_log)} entries.")
+
+                    if hasattr(policy, "_rtc_guidance_log"):
+                        np.save(os.path.join(output, "rtc_guidance_log.npy"),
+                                np.array(policy._rtc_guidance_log))
+                        print(f"Saved guidance log with {len(policy._rtc_guidance_log)} entries.")
+
                     # stop robot.
                     env.end_episode()
                     if len(action_log) > 0:

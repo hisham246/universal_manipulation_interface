@@ -62,8 +62,8 @@ class VicUmiEnv:
             robot_obs_horizon=2,
             gripper_obs_horizon=2,
             # action
-            max_pos_speed=0.25,
-            max_rot_speed=0.6,
+            max_pos_speed=3.5,
+            max_rot_speed=3.5,
             multi_cam_vis_resolution=(960, 960),
             # shared memory
             shm_manager=None
