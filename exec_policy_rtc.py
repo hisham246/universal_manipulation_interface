@@ -183,7 +183,7 @@ def main(output, robot_ip, gripper_ip, gripper_port,
 
             # RTC configuration
             rtc_schedule = "exp"
-            rtc_max_guidance = 5.0
+            rtc_max_guidance = 3.0
             DELAY_BUF_LEN = 8          # small rolling buffer for conservative delay forecast
             S_MIN = steps_per_inference  # minimum execution horizon per loop
             delay_buf = deque([S_MIN], maxlen=DELAY_BUF_LEN)
@@ -244,9 +244,20 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                     # d_forecast = max(delay_buf) if len(delay_buf) > 0 else S_MIN
                     # d_forecast = int(max(0, min(d_forecast, s_exec, H - s_exec)))
 
-                    # Enforce H - s > d so we get a non-empty decay region
+                    # # Enforce H - s > d so we get a non-empty decay region
+                    # d_forecast = max(delay_buf) if len(delay_buf) > 0 else S_MIN
+                    # d_forecast = min(d_forecast, s_exec, H - s_exec - 2)  # <-- note the -1
+                    # d_forecast = int(max(0, d_forecast))
+
+                    MIN_DECAY   = 3   # how many steps you want in the smooth region
+                    MAX_PREFIX  = 2   # how many steps can be “hard” prefix at most
                     d_forecast = max(delay_buf) if len(delay_buf) > 0 else S_MIN
-                    d_forecast = min(d_forecast, s_exec, H - s_exec - 2)  # <-- note the -1
+                    # ensure enough blend: d <= H - s_exec - MIN_DECAY
+                    prefix_cap_decay = H - s_exec - MIN_DECAY
+                    # ensure prefix isn’t too long either
+                    prefix_cap = min(prefix_cap_decay, MAX_PREFIX)
+                    prefix_cap = max(0, prefix_cap)
+                    d_forecast = min(d_forecast, s_exec, prefix_cap)
                     d_forecast = int(max(0, d_forecast))
 
                     # Prefix attention horizon = H - s (ignore the soon-to-be-executed suffix)
@@ -346,10 +357,20 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                                 # d_forecast = max(delay_buf) if len(delay_buf) > 0 else S_MIN
                                 # d_forecast = int(max(0, min(d_forecast, s_exec, H - s_exec)))
 
-                                d_forecast = max(delay_buf) if len(delay_buf) > 0 else S_MIN
-                                d_forecast = min(d_forecast, s_exec, H - s_exec - 2)  # <-- note the -1
-                                d_forecast = int(max(0, d_forecast))
+                                # d_forecast = max(delay_buf) if len(delay_buf) > 0 else S_MIN
+                                # d_forecast = min(d_forecast, s_exec, H - s_exec - 2)  # <-- note the -1
+                                # d_forecast = int(max(0, d_forecast))
 
+                                MIN_DECAY   = 3   # how many steps you want in the smooth region
+                                MAX_PREFIX  = 2   # how many steps can be “hard” prefix at most
+                                d_forecast = max(delay_buf) if len(delay_buf) > 0 else S_MIN
+                                # ensure enough blend: d <= H - s_exec - MIN_DECAY
+                                prefix_cap_decay = H - s_exec - MIN_DECAY
+                                # ensure prefix isn’t too long either
+                                prefix_cap = min(prefix_cap_decay, MAX_PREFIX)
+                                prefix_cap = max(0, prefix_cap)
+                                d_forecast = min(d_forecast, s_exec, prefix_cap)
+                                d_forecast = int(max(0, d_forecast))
                                 # Prefix attention horizon = H - s
                                 prefix_attn_h = max(0, H - s_exec)
 
