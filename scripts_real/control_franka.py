@@ -16,6 +16,7 @@ from umi.real_world.franka_hand_controller import FrankaHandController
 @click.option('-gf', '--gripper_force', type=float, default=20.0)
 @click.option('-gp', '--gripper_port', type=int, default=4242)
 @click.option('-gh', '--gripper_host', default='129.97.71.27')
+
 def main(robot_hostname, frequency, gripper_speed, gripper_force, gripper_port, gripper_host):
     max_pos_speed = 0.25
     max_rot_speed = 0.6
@@ -37,10 +38,11 @@ def main(robot_hostname, frequency, gripper_speed, gripper_force, gripper_port, 
             FrankaInterpolationController(
                 shm_manager=shm_manager,
                 robot_ip=robot_hostname,
-                frequency=100,
+                frequency=1000,
                 Kx_scale=5.0,
                 Kxd_scale=2.0,
-                verbose=False
+                verbose=False,
+                use_interpolation=True
             ) as controller, \
             Spacemouse(
                 shm_manager=shm_manager

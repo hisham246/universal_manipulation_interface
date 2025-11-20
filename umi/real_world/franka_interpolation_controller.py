@@ -92,7 +92,8 @@ class FrankaInterpolationController(mp.Process):
         get_max_k=None,
         receive_latency=0.0,
         output_dir=None,
-        episode_id=None
+        episode_id=None,
+        use_interpolation=True,
         ):
         """
         robot_ip: the ip of the middle-layer controller (NUC)
@@ -119,6 +120,7 @@ class FrankaInterpolationController(mp.Process):
         self.soft_real_time = soft_real_time
         self.receive_latency = receive_latency
         self.verbose = verbose
+        self.use_interpolation = use_interpolation
 
         # Saving
         self.output_dir = pathlib.Path(output_dir) if output_dir is not None else None
@@ -312,13 +314,26 @@ class FrankaInterpolationController(mp.Process):
             dt = 1. / self.frequency
             curr_pose = robot.get_ee_pose()
 
+            # # use monotonic time to make sure the control loop never go backward
+            # curr_t = time.monotonic()
+            # last_waypoint_time = curr_t
+            # pose_interp = PoseTrajectoryInterpolator(
+            #     times=[curr_t],
+            #     poses=[curr_pose]
+            # )
+
             # use monotonic time to make sure the control loop never go backward
             curr_t = time.monotonic()
             last_waypoint_time = curr_t
-            pose_interp = PoseTrajectoryInterpolator(
-                times=[curr_t],
-                poses=[curr_pose]
-            )
+
+            if self.use_interpolation:
+                pose_interp = PoseTrajectoryInterpolator(
+                    times=[curr_t],
+                    poses=[curr_pose]
+                )
+            else:
+                # just hold the last commanded pose, no interpolation
+                current_target_pose = curr_pose.copy()
 
             # Start Franka cartesian impedance policy
             robot.start_cartesian_impedance(
@@ -341,7 +356,12 @@ class FrankaInterpolationController(mp.Process):
 
                 # print("Jacobian:", robot.get_jacobian())
 
-                ee_pose = pose_interp(t_now)
+                # ee_pose = pose_interp(t_now)
+
+                if self.use_interpolation:
+                    ee_pose = pose_interp(t_now)
+                else:
+                    ee_pose = current_target_pose
 
                 # Compute desired joint positions using IK
                 joint_pos_desired, success = robot.get_joint_pos_desired(ee_pose)
@@ -432,37 +452,85 @@ class FrankaInterpolationController(mp.Process):
                         keep_running = False
                         # stop immediately, ignore later commands
                         break
+                    # elif cmd == Command.SERVOL.value:
+                    #     # since curr_pose always lag behind curr_target_pose
+                    #     # if we start the next interpolation with curr_pose
+                    #     # the command robot receive will have discontinouity 
+                    #     # and cause jittery robot behavior.
+                    #     target_pose = command['target_pose']
+                    #     duration = float(command['duration'])
+                    #     curr_time = t_now + dt
+                    #     t_insert = curr_time + duration
+                    #     pose_interp = pose_interp.drive_to_waypoint(
+                    #         pose=target_pose,
+                    #         time=t_insert,
+                    #         curr_time=curr_time,
+                    #     )
+                    #     last_waypoint_time = t_insert
+                    #     if self.verbose:
+                    #         print("[FrankaPositionalController] New pose target:{} duration:{}s".format(
+                    #             target_pose, duration))
+                    # elif cmd == Command.SCHEDULE_WAYPOINT.value:
+                    #     target_pose = command['target_pose']
+                    #     target_time = float(command['target_time'])
+                    #     # translate global time to monotonic time
+                    #     target_time = time.monotonic() - time.time() + target_time
+                    #     curr_time = t_now + dt
+                    #     pose_interp = pose_interp.schedule_waypoint(
+                    #         pose=target_pose,
+                    #         time=target_time,
+                    #         curr_time=curr_time,
+                    #         last_waypoint_time=last_waypoint_time
+                    #     )
+                    #     last_waypoint_time = target_time
+                    # else:
+                    #     keep_running = False
+                    #     break
+
                     elif cmd == Command.SERVOL.value:
-                        # since curr_pose always lag behind curr_target_pose
-                        # if we start the next interpolation with curr_pose
-                        # the command robot receive will have discontinouity 
-                        # and cause jittery robot behavior.
                         target_pose = command['target_pose']
-                        duration = float(command['duration'])
-                        curr_time = t_now + dt
-                        t_insert = curr_time + duration
-                        pose_interp = pose_interp.drive_to_waypoint(
-                            pose=target_pose,
-                            time=t_insert,
-                            curr_time=curr_time,
-                        )
-                        last_waypoint_time = t_insert
-                        if self.verbose:
-                            print("[FrankaPositionalController] New pose target:{} duration:{}s".format(
-                                target_pose, duration))
+
+                        if self.use_interpolation:
+                            duration = float(command['duration'])
+                            curr_time = t_now + dt
+                            t_insert = curr_time + duration
+                            pose_interp = pose_interp.drive_to_waypoint(
+                                pose=target_pose,
+                                time=t_insert,
+                                curr_time=curr_time,
+                            )
+                            last_waypoint_time = t_insert
+                            if self.verbose:
+                                print("[FrankaPositionalController] New pose target:{} duration:{}s".format(
+                                    target_pose, duration))
+                        else:
+                            # NO interpolation: just update the pose that will be sent every loop
+                            current_target_pose = target_pose.copy()
+                            if self.verbose:
+                                print("[FrankaPositionalController] New pose target (no interpolation):", target_pose)
+
                     elif cmd == Command.SCHEDULE_WAYPOINT.value:
                         target_pose = command['target_pose']
-                        target_time = float(command['target_time'])
-                        # translate global time to monotonic time
-                        target_time = time.monotonic() - time.time() + target_time
-                        curr_time = t_now + dt
-                        pose_interp = pose_interp.schedule_waypoint(
-                            pose=target_pose,
-                            time=target_time,
-                            curr_time=curr_time,
-                            last_waypoint_time=last_waypoint_time
-                        )
-                        last_waypoint_time = target_time
+
+                        if self.use_interpolation:
+                            target_time = float(command['target_time'])
+                            target_time = time.monotonic() - time.time() + target_time
+                            curr_time = t_now + dt
+                            pose_interp = pose_interp.schedule_waypoint(
+                                pose=target_pose,
+                                time=target_time,
+                                curr_time=curr_time,
+                                last_waypoint_time=last_waypoint_time
+                            )
+                            last_waypoint_time = target_time
+                        else:
+                            # In no-interpolation mode, you can either:
+                            # 1) ignore scheduling and just set the pose immediately
+                            # 2) or implement your own timing logic here.
+                            current_target_pose = target_pose.copy()
+                            if self.verbose:
+                                print("[FrankaPositionalController] Scheduled target applied immediately (no interpolation).")
+
                     else:
                         keep_running = False
                         break

@@ -89,7 +89,7 @@ def main(output, robot_ip, gripper_ip, gripper_port,
 
     # Diffusion UNet
     # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_pickplace_2.ckpt'
-    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/reaching_ball_multimodal.ckpt'
+    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/reaching_ball_multimodal_16.ckpt'
     # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/reaching_ball_unet.ckpt'
     # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/surface_wiping_unet_position_control.ckpt'
     # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/surface_wiping_unet_position_control_16_actions.ckpt'
@@ -183,7 +183,7 @@ def main(output, robot_ip, gripper_ip, gripper_port,
 
             # RTC configuration
             rtc_schedule = "exp"
-            rtc_max_guidance = 3.0
+            rtc_max_guidance = 5.0
             DELAY_BUF_LEN = 8          # small rolling buffer for conservative delay forecast
             S_MIN = steps_per_inference  # minimum execution horizon per loop
             delay_buf = deque([S_MIN], maxlen=DELAY_BUF_LEN)
@@ -249,16 +249,18 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                     # d_forecast = min(d_forecast, s_exec, H - s_exec - 2)  # <-- note the -1
                     # d_forecast = int(max(0, d_forecast))
 
-                    MIN_DECAY   = 3   # how many steps you want in the smooth region
-                    MAX_PREFIX  = 2   # how many steps can be “hard” prefix at most
-                    d_forecast = max(delay_buf) if len(delay_buf) > 0 else S_MIN
-                    # ensure enough blend: d <= H - s_exec - MIN_DECAY
-                    prefix_cap_decay = H - s_exec - MIN_DECAY
-                    # ensure prefix isn’t too long either
-                    prefix_cap = min(prefix_cap_decay, MAX_PREFIX)
-                    prefix_cap = max(0, prefix_cap)
-                    d_forecast = min(d_forecast, s_exec, prefix_cap)
-                    d_forecast = int(max(0, d_forecast))
+                    # MIN_DECAY   = 3   # how many steps you want in the smooth region
+                    # MAX_PREFIX  = 2   # how many steps can be “hard” prefix at most
+                    # d_forecast = max(delay_buf) if len(delay_buf) > 0 else S_MIN
+                    # # ensure enough blend: d <= H - s_exec - MIN_DECAY
+                    # prefix_cap_decay = H - s_exec - MIN_DECAY
+                    # # ensure prefix isn’t too long either
+                    # prefix_cap = min(prefix_cap_decay, MAX_PREFIX)
+                    # prefix_cap = max(0, prefix_cap)
+                    # d_forecast = min(d_forecast, s_exec, prefix_cap)
+                    # d_forecast = int(max(0, d_forecast))
+
+                    d_forecast = 4
 
                     # Prefix attention horizon = H - s (ignore the soon-to-be-executed suffix)
                     prefix_attn_h = max(0, H - s_exec)
@@ -361,16 +363,19 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                                 # d_forecast = min(d_forecast, s_exec, H - s_exec - 2)  # <-- note the -1
                                 # d_forecast = int(max(0, d_forecast))
 
-                                MIN_DECAY   = 3   # how many steps you want in the smooth region
-                                MAX_PREFIX  = 2   # how many steps can be “hard” prefix at most
-                                d_forecast = max(delay_buf) if len(delay_buf) > 0 else S_MIN
-                                # ensure enough blend: d <= H - s_exec - MIN_DECAY
-                                prefix_cap_decay = H - s_exec - MIN_DECAY
-                                # ensure prefix isn’t too long either
-                                prefix_cap = min(prefix_cap_decay, MAX_PREFIX)
-                                prefix_cap = max(0, prefix_cap)
-                                d_forecast = min(d_forecast, s_exec, prefix_cap)
-                                d_forecast = int(max(0, d_forecast))
+                                # MIN_DECAY   = 3   # how many steps you want in the smooth region
+                                # MAX_PREFIX  = 2   # how many steps can be “hard” prefix at most
+                                # d_forecast = max(delay_buf) if len(delay_buf) > 0 else S_MIN
+                                # # ensure enough blend: d <= H - s_exec - MIN_DECAY
+                                # prefix_cap_decay = H - s_exec - MIN_DECAY
+                                # # ensure prefix isn’t too long either
+                                # prefix_cap = min(prefix_cap_decay, MAX_PREFIX)
+                                # prefix_cap = max(0, prefix_cap)
+                                # d_forecast = min(d_forecast, s_exec, prefix_cap)
+                                # d_forecast = int(max(0, d_forecast))
+
+                                d_forecast = 4
+
                                 # Prefix attention horizon = H - s
                                 prefix_attn_h = max(0, H - s_exec)
 
@@ -411,23 +416,28 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                             this_target_poses = action
                             actions_to_execute = len(this_target_poses)
 
-                        # action_exec_latency = 0.01
-                        curr_time = time.time()
-                        is_new = action_timestamps > (curr_time)
-                        # print("Is new:", is_new)
-                        if np.sum(is_new) == 0:
-                            # exceeded time budget, still do something
-                            this_target_poses = this_target_poses[[-1]]
-                            # schedule on next available step
-                            next_step_idx = int(np.ceil((curr_time - eval_t_start) / dt))
-                            action_timestamp = eval_t_start + (next_step_idx) * dt
-                            print('Over budget', action_timestamp - curr_time)
-                            action_timestamps = np.array([action_timestamp])
-                            actions_to_execute = 1
-                        else:
-                            this_target_poses = this_target_poses[is_new]
-                            action_timestamps = action_timestamps[is_new]
-                            actions_to_execute = len(this_target_poses)
+                        # # action_exec_latency = 0.01
+                        # curr_time = time.time()
+                        # is_new = action_timestamps > (curr_time)
+                        # # print("Is new:", is_new)
+                        # if np.sum(is_new) == 0:
+                        #     # exceeded time budget, still do something
+                        #     this_target_poses = this_target_poses[[-1]]
+                        #     # schedule on next available step
+                        #     next_step_idx = int(np.ceil((curr_time - eval_t_start) / dt))
+                        #     action_timestamp = eval_t_start + (next_step_idx) * dt
+                        #     print('Over budget', action_timestamp - curr_time)
+                        #     action_timestamps = np.array([action_timestamp])
+                        #     actions_to_execute = 1
+                        # else:
+                        #     this_target_poses = this_target_poses[is_new]
+                        #     action_timestamps = action_timestamps[is_new]
+                        #     actions_to_execute = len(this_target_poses)
+
+                            if actions_to_execute > steps_per_inference:
+                                this_target_poses = this_target_poses[-steps_per_inference:]
+                                action_timestamps = action_timestamps[-steps_per_inference:]
+                                actions_to_execute = steps_per_inference
 
                         actions_executed_from_current_chunk += actions_to_execute
 
@@ -501,11 +511,11 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                     print("Interrupted!")
 
                     if hasattr(policy, "_rtc_W_log"):
-                        np.save(os.path.join(output, "rtc_W_log.npy"), np.array(policy._rtc_W_log, dtype=object))
+                        np.save(os.path.join(output, f"rtc_W_log_episode_{episode_id}.npy"), np.array(policy._rtc_W_log, dtype=object))
                         print(f"Saved W logs with {len(policy._rtc_W_log)} entries.")
 
                     if hasattr(policy, "_rtc_guidance_log"):
-                        np.save(os.path.join(output, "rtc_guidance_log.npy"),
+                        np.save(os.path.join(output, f"rtc_guidance_log_episode_{episode_id}.npy"),
                                 np.array(policy._rtc_guidance_log))
                         print(f"Saved guidance log with {len(policy._rtc_guidance_log)} entries.")
 

@@ -110,7 +110,7 @@ def limit_se3_step(p_prev, q_prev, p_cmd, q_cmd, v_max, w_max, dt):
 @click.option('--match_camera', '-mc', default=0, type=int)
 @click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
 @click.option('--steps_per_inference', '-si', default= 1, type=int, help="Action horizon for inference.")
-@click.option('--max_duration', '-md', default=60, help='Max duration for each epoch in seconds.')
+@click.option('--max_duration', '-md', default=120, help='Max duration for each epoch in seconds.')
 @click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
 @click.option('-nm', '--no_mirror', is_flag=True, default=False)
 @click.option('-sf', '--sim_fov', type=float, default=None)
@@ -241,8 +241,8 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                     obs[f'robot0_eef_rot_axis_angle']
                 ], axis=-1)[-1]
             
-            v_max = 0.75   # m/s
-            w_max = 0.9    # rad/s
+            v_max = 2.5   # m/s
+            w_max = 1.0    # rad/s
 
             p_last = obs['robot0_eef_pos'][-1].copy()
             q_last = R.from_rotvec(obs['robot0_eef_rot_axis_angle'][-1].copy()).as_quat()
@@ -373,13 +373,13 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                                 else:
                                     break
 
-                                # SE(3) rate limit around last command
-                                p_safe, q_safe = limit_se3_step(p_last, q_last, p_cmd, q_cmd, v_max, w_max, dt)
-                                p_last, q_last = p_safe, q_safe
+                                # # SE(3) rate limit around last command
+                                # p_safe, q_safe = limit_se3_step(p_last, q_last, p_cmd, q_cmd, v_max, w_max, dt)
+                                # p_last, q_last = p_safe, q_safe
 
                                 a_exec = np.zeros_like(action[0])
-                                a_exec[:3]  = p_safe
-                                a_exec[3:6] = R.from_quat(q_safe).as_rotvec()
+                                a_exec[:3]  = p_cmd
+                                a_exec[3:6] = R.from_quat(q_cmd).as_rotvec()
                                 a_exec[6]   = g_now   # keep gripper smooth across blends
 
                                 this_target_poses.append(a_exec)

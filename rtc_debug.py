@@ -89,7 +89,7 @@ def debug_example():
 
 def plot_guidance():
 
-    log = np.load("/home/hisham246/uwaterloo/rtc_debug_reaching/rtc_guidance_log.npy", allow_pickle=True)
+    log = np.load("/home/hisham246/uwaterloo/rtc_reaching_16/rtc_guidance_log_episode_15.npy", allow_pickle=True)
     tau, gw_raw, gw_clip = log[:,0], log[:,1], log[:,2]
 
     plt.figure()
@@ -160,7 +160,7 @@ def plot_W_stems(W_mat, num_examples=5):
 if __name__ == "__main__":
     # debug_example()
     plot_guidance()
-    path = "/home/hisham246/uwaterloo/rtc_debug_reaching/rtc_W_log.npy"
+    path = "/home/hisham246/uwaterloo/rtc_reaching_16/rtc_W_log_episode_15.npy"
     W_mat = load_and_stack_W(path)
     plot_W_heatmap(W_mat)
     plot_W_stems(W_mat, num_examples=8)
