@@ -233,12 +233,12 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                     lambda x: torch.from_numpy(x).unsqueeze(0).to(device))
                 
                 if use_rtc and prev_action_chunk is not None and chunk_generation_count > 0:
-                    H, D = policy.action_horizon, policy.action_dim
+                    # H, D = policy.action_horizon, policy.action_dim
 
-                    # How many actions from the current chunk have already been executed?
-                    s_exec = max(actions_executed_from_current_chunk, 0)
-                    # s_exec = min(s_exec, H)  # clamp
-                    s_exec = min(s_exec, H - 1)
+                    # # How many actions from the current chunk have already been executed?
+                    # s_exec = max(actions_executed_from_current_chunk, 0)
+                    # # s_exec = min(s_exec, H)  # clamp
+                    # s_exec = min(s_exec, H - 1)
 
                     # Conservative delay forecast d = max(buffer) and clamp to feasible region
                     # d_forecast = max(delay_buf) if len(delay_buf) > 0 else S_MIN
@@ -260,18 +260,62 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                     # d_forecast = min(d_forecast, s_exec, prefix_cap)
                     # d_forecast = int(max(0, d_forecast))
 
-                    d_forecast = 4
+                    # d_forecast = 4
 
-                    # Prefix attention horizon = H - s (ignore the soon-to-be-executed suffix)
+                    # # Prefix attention horizon = H - s (ignore the soon-to-be-executed suffix)
+                    # prefix_attn_h = max(0, H - s_exec)
+
+                    # # Slice remaining prefix from previous chunk and right-pad to H
+                    # remaining = prev_action_chunk[s_exec:]                      # [H - s_exec, D]
+                    # if remaining.shape[0] < H:
+                    #     pad = np.zeros((H - remaining.shape[0], remaining.shape[1]), dtype=remaining.dtype)
+                    #     remaining = np.concatenate([remaining, pad], axis=0)    # [H, D]
+
+                    # prev_chunk_tensor = torch.from_numpy(remaining).unsqueeze(0).to(device)
+
+                    # H, D = policy.action_horizon, policy.action_dim
+                    # s = steps_per_inference  # fixed execution horizon
+
+                    # # Choose a fixed or measured delay d, with 0 <= d <= s <= H - d
+                    # d_forecast = min(4, s, H - s)   # simple clamp
+
+                    # Prefix attention horizon is H - s (as in the paper)
+                    # prefix_attn_h = H - s
+
+                    # Use the full previous chunk, no index shift
+                    # prev_chunk_tensor = torch.from_numpy(prev_action_chunk).unsqueeze(0).to(device)
+
+
+                    H, D = policy.action_horizon, policy.action_dim
+
+                    # 1. How many steps from the *current* chunk will be (or were) executed
+                    s_exec = max(actions_executed_from_current_chunk, 0)
+                    s_exec = int(min(s_exec, H))  # safety
+
+                    # 2. Conservative delay estimate from buffer (Algorithm 1: use max)
+                    if len(delay_buf) > 0:
+                        d_raw = max(delay_buf)
+                    else:
+                        d_raw = S_MIN  # fall back to min execution horizon
+
+                    # 3. Clamp to feasible region: 0 ≤ d ≤ s_exec and 0 ≤ d ≤ H - s_exec - MIN_DECAY
+                    MIN_DECAY = 3   # want at least 3 steps in the smooth region
+                    d_max_by_s = s_exec
+                    d_max_by_h = max(0, H - s_exec - MIN_DECAY)
+                    d_max = max(0, min(d_max_by_s, d_max_by_h))
+
+                    d_forecast = int(np.clip(d_raw, 0, d_max))
+
+                    # 4. Prefix attention horizon: H - s_exec
                     prefix_attn_h = max(0, H - s_exec)
 
-                    # Slice remaining prefix from previous chunk and right-pad to H
-                    remaining = prev_action_chunk[s_exec:]                      # [H - s_exec, D]
+                    # 5. Remaining prefix from previous chunk, padded back to length H
+                    remaining = prev_action_chunk[s_exec:]      # shape [H - s_exec, D]
                     if remaining.shape[0] < H:
                         pad = np.zeros((H - remaining.shape[0], remaining.shape[1]), dtype=remaining.dtype)
-                        remaining = np.concatenate([remaining, pad], axis=0)    # [H, D]
-
+                        remaining = np.concatenate([remaining, pad], axis=0)
                     prev_chunk_tensor = torch.from_numpy(remaining).unsqueeze(0).to(device)
+
 
                     result = policy.realtime_action(
                         obs_dict,
@@ -284,21 +328,33 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                     )
                     print(f"[RTC] Chunk {chunk_generation_count}: d={d_forecast}, s={s_exec}, H={H}, prefix_h={prefix_attn_h}")
                 else:
+                    d_forecast = 0
                     # First chunk or standard inference
-                    result = policy.predict_action(obs_dict)
+                    result = policy.predict_action_flow(obs_dict)
                     print(f"[Standard] Initial chunk")
 
                 raw_action = result['action_pred'][0].detach().to('cpu').numpy()
                 action = get_real_umi_action(raw_action, obs, action_pose_repr)
 
-                # Store for next RTC iteration
-                delay_buf.append(max(actions_executed_from_current_chunk, 0))
-                prev_action_chunk = raw_action.copy()
-                actions_executed_from_current_chunk = 0
-                chunk_generation_count += 1
+                # # Store for next RTC iteration
+                # delay_buf.append(max(actions_executed_from_current_chunk, 0))
+                # prev_action_chunk = raw_action.copy()
+                # actions_executed_from_current_chunk = 0
+                # chunk_generation_count += 1
                 
+                # inference_time = time.time() - s
+                # print(f"Inference took {inference_time*1000:.1f}ms")
+
                 inference_time = time.time() - s
-                print(f"Inference took {inference_time*1000:.1f}ms")
+                delay_steps = int(np.ceil(inference_time / dt))
+                delay_steps = max(delay_steps, 0)
+
+                delay_buf.append(delay_steps)
+                print(f"Inference took {inference_time*1000:.1f}ms -> delay ~ {delay_steps} steps")
+
+                prev_action_chunk = raw_action.copy()
+                chunk_generation_count += 1
+                actions_executed_from_current_chunk = 0
 
             print('Ready!')
 
@@ -349,11 +405,11 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                                 lambda x: torch.from_numpy(x).unsqueeze(0).to(device))
 
                             if use_rtc and prev_action_chunk is not None and chunk_generation_count > 0:
-                                H, D = policy.action_horizon, policy.action_dim
+                                # H, D = policy.action_horizon, policy.action_dim
 
-                                # Actions executed so far from current chunk => execution horizon s
-                                s_exec = max(actions_executed_from_current_chunk, 0)
-                                s_exec = min(s_exec, H)
+                                # # Actions executed so far from current chunk => execution horizon s
+                                # s_exec = max(actions_executed_from_current_chunk, 0)
+                                # s_exec = min(s_exec, H)
 
                                 # Conservative delay forecast d
                                 # d_forecast = max(delay_buf) if len(delay_buf) > 0 else S_MIN
@@ -374,13 +430,43 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                                 # d_forecast = min(d_forecast, s_exec, prefix_cap)
                                 # d_forecast = int(max(0, d_forecast))
 
-                                d_forecast = 4
+                                # d_forecast = 4
 
-                                # Prefix attention horizon = H - s
+                                # # Prefix attention horizon = H - s
+                                # prefix_attn_h = max(0, H - s_exec)
+
+                                # # Remaining prefix from the *previous* chunk, right-padded to H
+                                # remaining = prev_action_chunk[s_exec:]                   # [H - s_exec, D]
+                                # if remaining.shape[0] < H:
+                                #     pad = np.zeros((H - remaining.shape[0], remaining.shape[1]), dtype=remaining.dtype)
+                                #     remaining = np.concatenate([remaining, pad], axis=0)
+                                # prev_chunk_tensor = torch.from_numpy(remaining).unsqueeze(0).to(device)
+
+                                H, D = policy.action_horizon, policy.action_dim
+
+                                # 1. How many steps from the *current* chunk will be (or were) executed
+                                s_exec = max(actions_executed_from_current_chunk, 0)
+                                s_exec = int(min(s_exec, H))  # safety
+
+                                # 2. Conservative delay estimate from buffer (Algorithm 1: use max)
+                                if len(delay_buf) > 0:
+                                    d_raw = max(delay_buf)
+                                else:
+                                    d_raw = S_MIN  # fall back to min execution horizon
+
+                                # 3. Clamp to feasible region: 0 ≤ d ≤ s_exec and 0 ≤ d ≤ H - s_exec - MIN_DECAY
+                                MIN_DECAY = 3   # want at least 3 steps in the smooth region
+                                d_max_by_s = s_exec
+                                d_max_by_h = max(0, H - s_exec - MIN_DECAY)
+                                d_max = max(0, min(d_max_by_s, d_max_by_h))
+
+                                d_forecast = int(np.clip(d_raw, 0, d_max))
+
+                                # 4. Prefix attention horizon: H - s_exec
                                 prefix_attn_h = max(0, H - s_exec)
 
-                                # Remaining prefix from the *previous* chunk, right-padded to H
-                                remaining = prev_action_chunk[s_exec:]                   # [H - s_exec, D]
+                                # 5. Remaining prefix from previous chunk, padded back to length H
+                                remaining = prev_action_chunk[s_exec:]      # shape [H - s_exec, D]
                                 if remaining.shape[0] < H:
                                     pad = np.zeros((H - remaining.shape[0], remaining.shape[1]), dtype=remaining.dtype)
                                     remaining = np.concatenate([remaining, pad], axis=0)
@@ -397,24 +483,36 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                                 )
                                 print(f"[RTC] Generated chunk {chunk_generation_count} with d={d_forecast}, s={s_exec}, prefix_h={prefix_attn_h}")
                             else:
-                                result = policy.predict_action(obs_dict)
+                                d_forecast = 0
+                                result = policy.predict_action_flow(obs_dict)
                                 print(f"[Standard] Generated initial chunk")
 
                             raw_action = result['action_pred'][0].detach().to('cpu').numpy()
                             action = get_real_umi_action(raw_action, obs, action_pose_repr)
 
-                            # After a new chunk is produced, log observed delay (s_exec), then reset
-                            delay_buf.append(max(actions_executed_from_current_chunk, 0))
+                            # # After a new chunk is produced, log observed delay (s_exec), then reset
+                            # delay_buf.append(max(actions_executed_from_current_chunk, 0))
+                            # prev_action_chunk = raw_action.copy()
+                            # chunk_generation_count += 1
+                            # actions_executed_from_current_chunk = 0
+
+                            # inference_time = time.time() - s
+                            # print(f"Inference took {inference_time*1000:.1f}ms")
+
+                            inference_time = time.time() - s
+                            delay_steps = int(np.ceil(inference_time / dt))
+                            delay_steps = max(delay_steps, 0)
+
+                            delay_buf.append(delay_steps)
+                            print(f"Inference took {inference_time*1000:.1f}ms -> delay ~ {delay_steps} steps")
+
                             prev_action_chunk = raw_action.copy()
                             chunk_generation_count += 1
                             actions_executed_from_current_chunk = 0
 
-                            inference_time = time.time() - s
-                            print(f"Inference took {inference_time*1000:.1f}ms")
-
-                            action_timestamps = (np.arange(len(action), dtype=np.float64)) * dt + obs_timestamps[-1]
-                            this_target_poses = action
-                            actions_to_execute = len(this_target_poses)
+                            # action_timestamps = (np.arange(len(action), dtype=np.float64)) * dt + obs_timestamps[-1]
+                            # this_target_poses = action
+                            # actions_to_execute = len(this_target_poses)
 
                         # # action_exec_latency = 0.01
                         # curr_time = time.time()
@@ -434,10 +532,20 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                         #     action_timestamps = action_timestamps[is_new]
                         #     actions_to_execute = len(this_target_poses)
 
-                            if actions_to_execute > steps_per_inference:
-                                this_target_poses = this_target_poses[-steps_per_inference:]
-                                action_timestamps = action_timestamps[-steps_per_inference:]
-                                actions_to_execute = steps_per_inference
+                            # if actions_to_execute > steps_per_inference:
+                            #     this_target_poses = this_target_poses[:steps_per_inference]
+                            #     action_timestamps = action_timestamps[:steps_per_inference]
+                            #     actions_to_execute = steps_per_inference
+
+                            start_idx = d_forecast
+                            end_idx   = min(start_idx + steps_per_inference, action.shape[0])
+
+                            this_target_poses = action[start_idx:end_idx]
+                            actions_to_execute = len(this_target_poses)
+
+                            # update timestamps to align with the *next* s steps
+                            action_timestamps = (
+                                np.arange(actions_to_execute, dtype=np.float64) * dt + obs_timestamps[-1])
 
                         actions_executed_from_current_chunk += actions_to_execute
 

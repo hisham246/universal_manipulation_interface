@@ -102,6 +102,8 @@ class DiffusionUnetTimmPolicy(BaseImagePolicy):
         self.inpaint_fixed_action_prefix = inpaint_fixed_action_prefix
         self.train_diffusion_n_samples = int(train_diffusion_n_samples)
         self.kwargs = kwargs
+        self.debug_flow = False
+        self._denoise_log = []   # list of dicts with per-step info
 
         if num_inference_steps is None:
             num_inference_steps = noise_scheduler.config.num_train_timesteps
@@ -340,10 +342,41 @@ class DiffusionUnetTimmPolicy(BaseImagePolicy):
 
             # FM/DDIM step in reparametrized space ẑ = z / (a+σ)
             # z_before = z.norm().item()
+            # z_before = z.clone()
             z_tilde = z / (a_t + s_t)
             z_tilde_next = z_tilde + v * delta_eta
             z = (z_tilde_next * (a_s + s_s)).detach()
             # z_after = z.norm().item()
+
+            # if getattr(self, "debug_flow", False):
+            #     v_mag = v.reshape(B, -1).norm(dim=1).mean()
+            #     dz    = (z - z_before).reshape(B, -1)
+            #     dz_mag = dz.norm(dim=1).mean()
+            #     z_before_mag = z_before.reshape(B, -1).norm(dim=1).mean()
+            #     z_after_mag  = z.reshape(B, -1).norm(dim=1).mean()
+
+            #     print(
+            #         f"[FLOW] step {k:02d} t={t:3d} "
+            #         f"tau={tau_t:.4f}->{tau_s:.4f} "
+            #         f"Δη={delta_eta:.4f} "
+            #         f"||z_before||={z_before_mag.item():.2f} "
+            #         f"||z_after||={z_after_mag.item():.2f} "
+            #         f"||v||={v_mag.item():.2f} "
+            #         f"||Δz||={dz_mag.item():.2f} "
+            #         f"rel_step={dz_mag.item() / (z_before_mag.item() + 1e-8):.2f}"
+            #     )
+
+
+            #     self._denoise_log.append({
+            #         "mode": "offline",
+            #         "k": int(k),
+            #         "t": int(t),
+            #         "tau_t": float(tau_t),
+            #         "tau_s": float(tau_s),
+            #         "delta_eta": float(delta_eta),
+            #         "v_mag": float(v_mag.item()),
+            #         "dz_mag": float(dz_mag.item()),
+            #     })
 
         return z  # normalized; unnormalize in predict_action
 
@@ -421,6 +454,7 @@ class DiffusionUnetTimmPolicy(BaseImagePolicy):
 
             # before
             # z_before = z.norm().item()
+            # z_before = z.clone()
 
             # (a,s) for current/next indices from ab_seq
             a_t, s_t = _as_from_ab(ab_seq[k])
@@ -445,6 +479,33 @@ class DiffusionUnetTimmPolicy(BaseImagePolicy):
             # inv_r2 = (tau_t**2 + (1 - tau_t)**2) / ((1 - tau_t)**2 + 1e-12)
             # c = (1 - tau_t) / (tau_t + 1e-12)
             # guidance = min(c * inv_r2, max_guidance_weight)
+
+
+            # if getattr(self, "debug_flow", False):
+            #     v_base_mag = v_base.reshape(B, -1).norm(dim=1).mean()
+            #     v_corr_mag = v_corr.reshape(B, -1).norm(dim=1).mean()
+            #     dz_mag = (z - z_before).reshape(B, -1).norm(dim=1).mean()
+
+            #     print(
+            #         f"[RTC] step {k:02d} t={t:3d} "
+            #         f"tau={tau_t:.4f}->{tau_s:.4f} "
+            #         f"Δη={delta_eta:.4f} "
+            #         f"||v_base||={v_base_mag.item():.4f} "
+            #         f"||v_corr||={v_corr_mag.item():.4f} "
+            #         f"||Δz||={dz_mag.item():.4f}"
+            #     )
+
+            #     self._denoise_log.append({
+            #         "mode": "rtc",
+            #         "k": int(k),
+            #         "t": int(t),
+            #         "tau_t": float(tau_t),
+            #         "tau_s": float(tau_s),
+            #         "delta_eta": float(delta_eta),
+            #         "v_base_mag": float(v_base_mag.item()),
+            #         "v_corr_mag": float(v_corr_mag.item()),
+            #         "dz_mag": float(dz_mag.item()),
+            #     })
 
 
         # unnormalize back to action space
@@ -472,51 +533,51 @@ class DiffusionUnetTimmPolicy(BaseImagePolicy):
         
         # Detach to prevent graph accumulation
         global_cond_detached = global_cond.detach()
-        z_t_copy = z_t.detach().clone().requires_grad_(True)
+        # z_t_copy = z_t.detach().clone().requires_grad_(True)
         
         # Compute velocity and predicted clean action
         with torch.enable_grad():
-            v_t = self.flow_adapter.velocity(z_t_copy, t_id, global_cond_detached)
-            # Denoising estimate: x_1 = z_t + (1-time) * v_t
-            # This is Â_c^1 from Pokle Eq. 3
-            x_1_hat = z_t_copy + (1 - time) * v_t
-        
-        # Weighted error against previous chunk
-        error = (y_prev - x_1_hat) * weights[None, :, None]  # [B, H, D]
-        
-        # Compute gradient via backprop
-        if z_t_copy.grad is not None:
-            z_t_copy.grad.zero_()
-        
-        x_1_hat.backward(error)
-        pinv_correction = z_t_copy.grad.detach().clone()
-
-        #     z_t_copy = z_t.detach().clone().requires_grad_(True)
         #     v_t = self.flow_adapter.velocity(z_t_copy, t_id, global_cond_detached)
+        #     # Denoising estimate: x_1 = z_t + (1-time) * v_t
+        #     # This is Â_c^1 from Pokle Eq. 3
         #     x_1_hat = z_t_copy + (1 - time) * v_t
+        
+        # # Weighted error against previous chunk
+        # error = (y_prev - x_1_hat) * weights[None, :, None]  # [B, H, D]
+        
+        # # Compute gradient via backprop
+        # if z_t_copy.grad is not None:
+        #     z_t_copy.grad.zero_()
+        
+        # x_1_hat.backward(error)
+        # pinv_correction = z_t_copy.grad.detach().clone()
 
-        #     error = (y_prev - x_1_hat) * weights[None, :, None]
+            z_t_copy = z_t.detach().clone().requires_grad_(True)
+            v_t = self.flow_adapter.velocity(z_t_copy, t_id, global_cond_detached)
+            x_1_hat = z_t_copy + (1 - time) * v_t
 
-        #     (pinv_correction,) = torch.autograd.grad(
-        #         outputs=x_1_hat,
-        #         inputs=z_t_copy,
-        #         grad_outputs=error,
-        #         retain_graph=False,
-        #         create_graph=False
-        #     )
+            error = (y_prev - x_1_hat) * weights[None, :, None]
 
-        # pinv_correction = pinv_correction.detach()
+            (pinv_correction,) = torch.autograd.grad(
+                outputs=x_1_hat,
+                inputs=z_t_copy,
+                grad_outputs=error,
+                retain_graph=False,
+                create_graph=False
+            )
+
+        pinv_correction = pinv_correction.detach()
         
         # Guidance weight (Pokle Eq. 2 and Eq. 4)
-        # inv_r2 = (time**2 + (1 - time)**2) / ((1 - time)**2)
-        # c = (1 - time) / (time)
-        # gw_raw = c * inv_r2
-        # guidance_weight = min(gw_raw, max_guidance_weight)
-
-        eps = 1e-12
-        r2 = time**2 + (1 - time)**2
-        gw_raw = (1 - time) / ((time + eps) * (r2 + eps))
+        inv_r2 = (time**2 + (1 - time)**2) / ((1 - time)**2)
+        c = (1 - time) / (time)
+        gw_raw = c * inv_r2
         guidance_weight = min(gw_raw, max_guidance_weight)
+
+        # eps = 1e-12
+        # r2 = time**2 + (1 - time)**2
+        # gw_raw = (1 - time) / ((time + eps) * (r2 + eps))
+        # guidance_weight = min(gw_raw, max_guidance_weight)
         # print(f"[RTC-guidance] tau={time:.3f}, gw_raw={gw_raw:.3f}, gw_clipped={guidance_weight:.3f}")
 
         if getattr(self, "debug_rtc", False):

@@ -6,8 +6,12 @@ from diffusion_policy.codecs.imagecodecs_numcodecs import register_codecs
 register_codecs()
 
 # Configuration
-zarr_path = "/home/hisham246/uwaterloo/umi/reaching_ball_multimodal/reaching_ball_multimodal.zarr.zip"
-output_dir = "/home/hisham246/uwaterloo/umi/reaching_ball_multimodal/npy/"
+# zarr_path = "/home/hisham246/uwaterloo/umi/reaching_ball_multimodal/reaching_ball_multimodal.zarr.zip"
+# output_dir = "/home/hisham246/uwaterloo/umi/reaching_ball_multimodal/dataset/"
+
+zarr_path = "/home/hisham246/uwaterloo/cup_in_the_wild/cup_in_the_lab.zarr.zip"
+output_dir = "/home/hisham246/uwaterloo/cup_in_the_wild/dataset/"
+
 os.makedirs(output_dir, exist_ok=True)
 
 # Open zarr dataset
@@ -21,7 +25,6 @@ episode_starts = np.concatenate(([0], episode_ends[:-1]))
 
 # All data keys to extract
 data_keys = [
-    "timestamp",
     "robot0_eef_pos", 
     "robot0_eef_rot_axis_angle",
     "robot0_gripper_width",

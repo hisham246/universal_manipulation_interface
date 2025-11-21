@@ -92,85 +92,193 @@ def quat_angle_error(q1, q2):
 class PolicyActionSimulator:
     """Simulate policy action prediction from observations."""
     
-    def __init__(self, obs_pose_repr='relative', action_pose_repr='relative', obs_horizon=2, action_horizon=8, 
-                 policy=None, device=None):
+    def __init__(self, obs_pose_repr='relative', action_pose_repr='relative', obs_horizon=2, action_horizon=16, img_horizon=1,
+                 policy=None, device=None, dt=0.04):
         self.obs_pose_repr = obs_pose_repr
         self.action_pose_repr = action_pose_repr
         self.obs_horizon = obs_horizon
         self.action_horizon = action_horizon
+        self.img_horizon = img_horizon
         self.policy = policy
         self.device = device if device is not None else torch.device('cpu')
+        self.dt = dt
     
     def load_episode_data(self, episode_dir):
         """Load episode data from numpy files."""
         positions = np.load(os.path.join(episode_dir, "robot0_eef_pos.npy"))
         rotations = np.load(os.path.join(episode_dir, "robot0_eef_rot_axis_angle.npy"))
-        timestamps = np.load(os.path.join(episode_dir, "timestamp.npy"))
+        # timestamps = np.load(os.path.join(episode_dir, "timestamp.npy"))
         gripper_width = np.load(os.path.join(episode_dir, "robot0_gripper_width.npy"))
-        demo_start_pose = np.load(os.path.join(episode_dir, "robot0_demo_start_pose.npy"))
-        demo_end_pose = np.load(os.path.join(episode_dir, "robot0_demo_end_pose.npy"))
+        # demo_start_pose = np.load(os.path.join(episode_dir, "robot0_demo_start_pose.npy"))
+        # demo_end_pose = np.load(os.path.join(episode_dir, "robot0_demo_end_pose.npy"))
         camera_rgb = np.load(os.path.join(episode_dir, "camera0_rgb.npy"))
+
+        T = positions.shape[0]
+        timestamps = np.arange(T, dtype=np.float32) * self.dt
         
         return {
             'positions': positions,
             'rotations': rotations, 
             'timestamps': timestamps,
             'gripper_width': gripper_width,
-            'demo_start_pose': demo_start_pose,
-            'demo_end_pose': demo_end_pose,
+            # 'demo_start_pose': demo_start_pose,
+            # 'demo_end_pose': demo_end_pose,
             'camera_rgb': camera_rgb
         }
     
+    # def simulate_obs_processing(self, episode_data, timestep):
+    #     """Simulate how observations get processed for the policy."""
+    #     positions = episode_data['positions']
+    #     rotations = episode_data['rotations']
+    #     camera_rgb = episode_data['camera_rgb']
+    #     gripper_width = episode_data['gripper_width']
+    #     # demo_start_pose = episode_data['demo_start_pose']
+        
+    #     # Get observation window
+    #     start_idx = max(0, timestep - self.obs_horizon + 1)
+    #     end_idx = timestep + 1
+        
+    #     obs_positions = positions[start_idx:end_idx]
+    #     obs_rotations = rotations[start_idx:end_idx]
+    #     obs_images = camera_rgb[start_idx:end_idx]
+    #     obs_gripper = gripper_width[start_idx:end_idx]
+        
+    #     # Pad if necessary (repeat first observation)
+    #     if len(obs_positions) < self.obs_horizon:
+    #         padding_needed = self.obs_horizon - len(obs_positions)
+    #         obs_positions = np.concatenate([
+    #             np.tile(obs_positions[0:1], (padding_needed, 1)),
+    #             obs_positions
+    #         ])
+    #         obs_rotations = np.concatenate([
+    #             np.tile(obs_rotations[0:1], (padding_needed, 1)),
+    #             obs_rotations
+    #         ])
+    #         obs_images = np.concatenate([
+    #             np.tile(obs_images[0:1], (padding_needed, 1, 1, 1)),
+    #             obs_images
+    #         ])
+    #         obs_gripper = np.concatenate([
+    #             np.tile(obs_gripper[0:1], (padding_needed, 1)),
+    #             obs_gripper
+    #         ])
+        
+    #     # Process images exactly like inference: uint8 -> float32 and THWC -> TCHW
+    #     if obs_images.dtype == np.uint8:
+    #         obs_images = obs_images.astype(np.float32) / 255.0
+    #     # Convert THWC to TCHW
+    #     obs_images = np.moveaxis(obs_images, -1, 1)
+        
+    #     # Convert poses to matrices and apply representation conversion
+    #     obs_poses = np.concatenate([obs_positions, obs_rotations], axis=-1)
+    #     pose_matrices = pose_to_mat(obs_poses)
+        
+    #     # Apply observation pose representation (relative to most recent pose)
+    #     if self.obs_pose_repr != 'abs':
+    #         current_pose_mat = pose_matrices[-1]  # Most recent pose
+    #         processed_pose_mat = convert_pose_mat_rep(
+    #             pose_matrices,
+    #             base_pose_mat=current_pose_mat,
+    #             pose_rep=self.obs_pose_repr,
+    #             backward=False
+    #         )
+    #     else:
+    #         processed_pose_mat = pose_matrices
+        
+    #     # Convert to 10D representation for robot poses
+    #     obs_10d = mat_to_pose10d(processed_pose_mat)
+        
+    #     # Compute relative pose with respect to episode start (like in UmiDataset)
+    #     # episode_start_pose = demo_start_pose[0]  # Get the start pose for this episode
+
+    #     # # Add noise to episode start pose (matching training behavior)
+    #     # episode_start_pose = episode_start_pose + np.random.normal(
+    #     #     scale=[0.05, 0.05, 0.05, 0.05, 0.05, 0.05], 
+    #     #     size=episode_start_pose.shape
+    #     # )
+        
+    #     # start_pose_mat = pose_to_mat(episode_start_pose)
+
+    #     episode_start_pose_6 = np.concatenate([positions[0], rotations[0]], axis=-1)  # [6]
+
+    #     start_pose_mat = pose_to_mat(episode_start_pose_6)  # 4x4
+
+        
+    #     rel_obs_pose_mat = convert_pose_mat_rep(
+    #         pose_matrices,
+    #         base_pose_mat=start_pose_mat,
+    #         pose_rep='relative',
+    #         backward=False)
+        
+    #     rel_obs_pose_10d = mat_to_pose10d(rel_obs_pose_mat)
+        
+    #     # Prepare observation dict exactly like inference
+    #     obs_dict = {
+    #         'robot0_eef_pos': obs_10d[..., :3],  # 3D positions
+    #         'robot0_eef_rot_axis_angle': obs_10d[..., 3:9],  # 6D rotations
+    #         'robot0_eef_rot_axis_angle_wrt_start': rel_obs_pose_10d[..., 3:9],  # 6D rotations relative to start
+    #         'camera0_rgb': obs_images,  # Processed images TCHW format
+    #         'robot0_gripper_width': obs_gripper  # Gripper width
+    #     }
+        
+    #     return obs_dict, obs_poses[-1]  # Return processed obs and current absolute pose
+    
     def simulate_obs_processing(self, episode_data, timestep):
         """Simulate how observations get processed for the policy."""
-        positions = episode_data['positions']
-        rotations = episode_data['rotations']
-        camera_rgb = episode_data['camera_rgb']
-        gripper_width = episode_data['gripper_width']
-        demo_start_pose = episode_data['demo_start_pose']
-        
-        # Get observation window
-        start_idx = max(0, timestep - self.obs_horizon + 1)
-        end_idx = timestep + 1
-        
-        obs_positions = positions[start_idx:end_idx]
-        obs_rotations = rotations[start_idx:end_idx]
-        obs_images = camera_rgb[start_idx:end_idx]
-        obs_gripper = gripper_width[start_idx:end_idx]
-        
-        # Pad if necessary (repeat first observation)
+        positions     = episode_data['positions']      # [T, 3]
+        rotations     = episode_data['rotations']      # [T, 3]
+        camera_rgb    = episode_data['camera_rgb']     # [T, H, W, 3]
+        gripper_width = episode_data['gripper_width']  # [T, 1]
+
+        # -------- 1) STATE + GRIPPER WINDOW (length = self.obs_horizon) --------
+        state_start = max(0, timestep - self.obs_horizon + 1)
+        state_end   = timestep + 1
+
+        obs_positions = positions[state_start:state_end]
+        obs_rotations = rotations[state_start:state_end]
+        obs_gripper   = gripper_width[state_start:state_end]
+
+        # Pad at beginning if short
         if len(obs_positions) < self.obs_horizon:
-            padding_needed = self.obs_horizon - len(obs_positions)
-            obs_positions = np.concatenate([
-                np.tile(obs_positions[0:1], (padding_needed, 1)),
-                obs_positions
-            ])
-            obs_rotations = np.concatenate([
-                np.tile(obs_rotations[0:1], (padding_needed, 1)),
-                obs_rotations
-            ])
-            obs_images = np.concatenate([
-                np.tile(obs_images[0:1], (padding_needed, 1, 1, 1)),
-                obs_images
-            ])
-            obs_gripper = np.concatenate([
-                np.tile(obs_gripper[0:1], (padding_needed, 1)),
-                obs_gripper
-            ])
-        
-        # Process images exactly like inference: uint8 -> float32 and THWC -> TCHW
+            pad_n = self.obs_horizon - len(obs_positions)
+            obs_positions = np.concatenate(
+                [np.tile(obs_positions[0:1], (pad_n, 1)), obs_positions],
+                axis=0
+            )
+            obs_rotations = np.concatenate(
+                [np.tile(obs_rotations[0:1], (pad_n, 1)), obs_rotations],
+                axis=0
+            )
+            obs_gripper = np.concatenate(
+                [np.tile(obs_gripper[0:1], (pad_n, 1)), obs_gripper],
+                axis=0
+            )
+
+        # -------- 2) CAMERA WINDOW (length = self.img_horizon, usually 1) --------
+        img_start = max(0, timestep - self.img_horizon + 1)
+        img_end   = timestep + 1
+
+        obs_images = camera_rgb[img_start:img_end]  # [H_img, H, W, 3]
+
+        if len(obs_images) < self.img_horizon:
+            pad_n = self.img_horizon - len(obs_images)
+            obs_images = np.concatenate(
+                [np.tile(obs_images[0:1], (pad_n, 1, 1, 1)), obs_images],
+                axis=0
+            )
+
+        # 3) Image preprocessing: uint8 -> float32, THWC -> TCHW
         if obs_images.dtype == np.uint8:
             obs_images = obs_images.astype(np.float32) / 255.0
-        # Convert THWC to TCHW
-        obs_images = np.moveaxis(obs_images, -1, 1)
-        
-        # Convert poses to matrices and apply representation conversion
-        obs_poses = np.concatenate([obs_positions, obs_rotations], axis=-1)
-        pose_matrices = pose_to_mat(obs_poses)
-        
-        # Apply observation pose representation (relative to most recent pose)
+        obs_images = np.moveaxis(obs_images, -1, 1)   # [H_img, 3, H, W]
+
+        # 4) Pose matrices (for state horizon)
+        obs_poses = np.concatenate([obs_positions, obs_rotations], axis=-1)  # [H_state, 6]
+        pose_matrices = pose_to_mat(obs_poses)  # [H_state, 4, 4]
+
+        # 5) Relative to most recent pose (same as before)
         if self.obs_pose_repr != 'abs':
-            current_pose_mat = pose_matrices[-1]  # Most recent pose
+            current_pose_mat = pose_matrices[-1]
             processed_pose_mat = convert_pose_mat_rep(
                 pose_matrices,
                 base_pose_mat=current_pose_mat,
@@ -179,40 +287,33 @@ class PolicyActionSimulator:
             )
         else:
             processed_pose_mat = pose_matrices
-        
-        # Convert to 10D representation for robot poses
-        obs_10d = mat_to_pose10d(processed_pose_mat)
-        
-        # Compute relative pose with respect to episode start (like in UmiDataset)
-        episode_start_pose = demo_start_pose[0]  # Get the start pose for this episode
-        
-        # Add noise to episode start pose (matching training behavior)
-        episode_start_pose = episode_start_pose + np.random.normal(
-            scale=[0.05, 0.05, 0.05, 0.05, 0.05, 0.05], 
-            size=episode_start_pose.shape
-        )
-        
-        start_pose_mat = pose_to_mat(episode_start_pose)
-        
+
+        obs_10d = mat_to_pose10d(processed_pose_mat)   # [H_state, 10]
+
+        # 6) Define episode "start pose" from first sample of episode
+        episode_start_pose_6 = np.concatenate([positions[0], rotations[0]], axis=-1)
+        start_pose_mat = pose_to_mat(episode_start_pose_6)
+
         rel_obs_pose_mat = convert_pose_mat_rep(
             pose_matrices,
             base_pose_mat=start_pose_mat,
             pose_rep='relative',
-            backward=False)
-        
+            backward=False
+        )
         rel_obs_pose_10d = mat_to_pose10d(rel_obs_pose_mat)
-        
-        # Prepare observation dict exactly like inference
+
+        # 7) Build obs dict with *different* horizons per key
         obs_dict = {
-            'robot0_eef_pos': obs_10d[..., :3],  # 3D positions
-            'robot0_eef_rot_axis_angle': obs_10d[..., 3:9],  # 6D rotations
-            'robot0_eef_rot_axis_angle_wrt_start': rel_obs_pose_10d[..., 3:9],  # 6D rotations relative to start
-            'camera0_rgb': obs_images,  # Processed images TCHW format
-            'robot0_gripper_width': obs_gripper  # Gripper width
+            'robot0_eef_pos': obs_10d[..., :3],                      # [H_state, 3]
+            'robot0_eef_rot_axis_angle': obs_10d[..., 3:9],          # [H_state, 6]
+            'robot0_eef_rot_axis_angle_wrt_start': rel_obs_pose_10d[..., 3:9],
+            'camera0_rgb': obs_images,                               # [H_img(=1), 3, H, W]
+            'robot0_gripper_width': obs_gripper                      # [H_state, 1]
         }
-        
-        return obs_dict, obs_poses[-1]  # Return processed obs and current absolute pose
-    
+
+        # Return last absolute pose as before
+        return obs_dict, obs_poses[-1]
+
     def simulate_policy_prediction(self, obs_dict):
         """Run actual policy prediction."""
         
@@ -578,7 +679,7 @@ def visualize_representation_conversion(results, episode_name):
     plt.show()
 
 def run_policy_simulation(dataset_directory, obs_pose_repr='relative', action_pose_repr='relative', 
-                         policy_path=None, obs_horizon=2, action_horizon=8):
+                         policy_path=None, obs_horizon=2, action_horizon=16, img_horizon=1):
     """Run policy simulation on all episodes in directory."""
     
     # Find all episode directories
@@ -635,6 +736,7 @@ def run_policy_simulation(dataset_directory, obs_pose_repr='relative', action_po
         action_pose_repr=action_pose_repr,
         obs_horizon=obs_horizon,
         action_horizon=action_horizon,
+        img_horizon=img_horizon,
         policy=policy,
         device=device
     )
@@ -754,6 +856,17 @@ def run_policy_simulation(dataset_directory, obs_pose_repr='relative', action_po
         # 3D Animation
         print(f"  - Creating 3D animation...")
         animate_predicted_vs_ground_truth(results, episode_name)
+
+        # after you compute global_cond and before process_episode:
+        policy = simulator.policy
+        policy.debug_flow = True          # turn logging on
+        policy._denoise_log = []          # reset log
+
+        # Simple offline flow test (no RTC guidance)
+        with torch.no_grad():
+            _ = policy.sample_chunk_flow(global_cond=global_cond, n_steps=policy.flow_n_steps)
+
+        print(f"[DEBUG] collected {len(policy._denoise_log)} flow steps")
         
     except Exception as e:
         print(f"  - Error processing {episode_name}: {str(e)}")
@@ -815,14 +928,15 @@ PolicyActionSimulator.process_episode = process_episode_method
 
 if __name__ == "__main__":
     # Configuration - updated for numpy array format
-    dataset_directory = "/home/hisham246/uwaterloo/umi/reaching_ball_multimodal/dataset/"
+    dataset_directory = "/home/hisham246/uwaterloo/cup_in_the_wild/dataset/"
     
     # Path to your trained policy checkpoint (REQUIRED)
-    policy_path = "/home/hisham246/uwaterloo/diffusion_policy_models/reaching_ball_multimodal.ckpt"
+    policy_path = "/home/hisham246/uwaterloo/cup_in_the_wild/cup_wild_vit_l_1img.ckpt"
     
     # Policy parameters (should match your trained model)
     obs_horizon = 2  # Number of observation timesteps
-    action_horizon = 8  # Number of action prediction timesteps
+    action_horizon = 16  # Number of action prediction timesteps
+    img_horizon = 1  # Number of image observations
     
     print("="*60)
     print("POLICY ACTION PREDICTION SIMULATION")
