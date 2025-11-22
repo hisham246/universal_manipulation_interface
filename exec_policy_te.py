@@ -26,21 +26,26 @@ ROOT_DIR = os.path.dirname(os.path.dirname(__file__))
 sys.path.append(ROOT_DIR)
 os.chdir(ROOT_DIR)
 
-from collections import deque
+import os
 import pathlib
 import time
 from multiprocessing.managers import SharedMemoryManager
 
+from moviepy.editor import VideoFileClip
 import av
 import click
 import cv2
 import dill
 import hydra
 import numpy as np
+import scipy.spatial.transform as st
 import torch
 from omegaconf import OmegaConf
 import json
 from diffusion_policy.common.replay_buffer import ReplayBuffer
+from diffusion_policy.common.cv2_util import (
+    get_image_transform
+)
 from umi.common.cv_util import (
     parse_fisheye_intrinsics,
     FisheyeRectConverter
@@ -50,41 +55,60 @@ from diffusion_policy.workspace.base_workspace import BaseWorkspace
 from umi.common.precise_sleep import precise_wait
 from umi.real_world.vic_umi_env import VicUmiEnv
 from umi.real_world.keystroke_counter import (
-    KeystrokeCounter, KeyCode
+    KeystrokeCounter, Key, KeyCode
 )
 from umi.real_world.real_inference_util import (get_real_obs_resolution,
                                                 get_real_umi_obs_dict,
                                                 get_real_umi_action)
+from umi.real_world.spacemouse_shared_memory import Spacemouse
 import pandas as pd
+from scipy.spatial.transform import Rotation as R
 
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
 @click.command()
+# @click.option('--input', '-i', required=True, help='Path to checkpoint')
 @click.option('--output', '-o', required=True, help='Directory to save recording')
 @click.option('--robot_ip', default='129.97.71.27')
 @click.option('--gripper_ip', default='129.97.71.27')
 @click.option('--gripper_port', type=int, default=4242)
+# @click.option('--gripper_speed', type=float, default=0.05)
+# @click.option('--gripper_force', type=float, default=20.0)
 @click.option('--match_dataset', '-m', default=None, help='Dataset used to overlay and adjust initial condition')
+# @click.option('--match_episode', '-me', default=None, type=int, help='Match specific episode from the match dataset')
 @click.option('--match_camera', '-mc', default=0, type=int)
+# @click.option('--camera_reorder', '-cr', default='021')
 @click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
-@click.option('--steps_per_inference', '-si', default=5, type=int, help="Action horizon for inference.")
-@click.option('--max_duration', '-md', default=120, help='Max duration for each epoch in seconds.')
+# @click.option('--init_joints', '-j', is_flag=True, default=False, help="Whether to initialize robot joint configuration in the beginning.")
+@click.option('--steps_per_inference', '-si', default= 3, type=int, help="Action horizon for inference.")
+@click.option('--max_duration', '-md', default=2000000, help='Max duration for each epoch in seconds.')
+@click.option('--max_timesteps', '-mt', default=500, help='Max steps for each epoch.')
 @click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
+# @click.option('--command_latency', '-cl', default=0.01, type=float, help="Latency between receiving SapceMouse command to executing on Robot in Sec.")
 @click.option('-nm', '--no_mirror', is_flag=True, default=False)
 @click.option('-sf', '--sim_fov', type=float, default=None)
 @click.option('-ci', '--camera_intrinsics', type=str, default=None)
+# @click.option('-rt', '--robot_type', default='franka')
 @click.option('--mirror_crop', is_flag=True, default=False)
 @click.option('--mirror_swap', is_flag=True, default=False)
-@click.option('--use_rtc', is_flag=True, default=True)
+@click.option('--temporal_agg', is_flag=True, default=True)
+@click.option('--ensemble_steps', type=int, default=8)
 
 def main(output, robot_ip, gripper_ip, gripper_port,
     match_dataset, match_camera,
-    vis_camera_idx, steps_per_inference, max_duration,
+    vis_camera_idx, steps_per_inference,  max_duration, max_timesteps,
     frequency, no_mirror, sim_fov, camera_intrinsics, 
-    mirror_crop, mirror_swap, use_rtc):
+    mirror_crop, mirror_swap, temporal_agg, ensemble_steps):
+    # Diffusion Transformer
+    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_transformer_pickplace.ckpt'
 
     # Diffusion UNet
+    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_pickplace_2.ckpt'
     ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/reaching_ball_multimodal_16.ckpt'
+
+
+    # Compliance policy unet
+    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_compliance_trial_2.ckpt'
 
     payload = torch.load(open(ckpt_path, 'rb'), map_location='cpu', pickle_module=dill)
     cfg = payload['cfg']
@@ -107,6 +131,7 @@ def main(output, robot_ip, gripper_ip, gripper_port,
 
     print("steps_per_inference:", steps_per_inference)
     with SharedMemoryManager() as shm_manager:
+        # with Spacemouse(shm_manager=shm_manager) as sm, \
         with KeystrokeCounter() as key_counter, \
             VicUmiEnv(
                 output_dir=output, 
@@ -117,11 +142,19 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                 obs_image_resolution=obs_res,
                 obs_float32=True,
                 camera_reorder=None,
-                camera_obs_latency=0.0,
-                robot_obs_latency=0.0,
-                gripper_obs_latency=0.0,
-                robot_action_latency=0.0,
-                gripper_action_latency=0.0,
+                # init_joints=init_joints,
+                # enable_multi_cam_vis=True,
+                # latency
+                camera_obs_latency=0.145,
+                robot_obs_latency=0.0001,
+                gripper_obs_latency=0.01,
+                robot_action_latency=0.2,
+                gripper_action_latency=0.1,
+                # camera_obs_latency=0.0,
+                # robot_obs_latency=0.0,
+                # gripper_obs_latency=0.0,
+                # robot_action_latency=0.0,
+                # gripper_action_latency=0.0,
                 # obs
                 camera_obs_horizon=cfg.task.shape_meta.obs.camera0_rgb.horizon,
                 robot_obs_horizon=cfg.task.shape_meta.obs.robot0_eef_pos.horizon,
@@ -130,9 +163,11 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                 fisheye_converter=fisheye_converter,
                 mirror_crop=mirror_crop,
                 mirror_swap=mirror_swap,
+                # dev_video_path='/dev/video13',
                 # action
                 max_pos_speed=1.5,
-                max_rot_speed=1.5,
+                max_rot_speed=2.0,
+                # robot_type=robot_type,
                 shm_manager=shm_manager) as env:
             cv2.setNumThreads(2)
             print("Waiting for camera")
@@ -159,18 +194,6 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                         episode_first_frame_map[episode_idx] = img
             print(f"Loaded initial frame for {len(episode_first_frame_map)} episodes")
 
-            # RTC configuration
-            rtc_schedule = "exp"
-            rtc_max_guidance = 5.0
-            DELAY_BUF_LEN = 8          # small rolling buffer for conservative delay forecast
-            delay_buf = deque([steps_per_inference], maxlen=DELAY_BUF_LEN)
-
-            # Track previous chunk in *model* action space (like action_chunk in eval_flow.py)
-            prev_raw_chunk = None      # shape [H, D] in policy action space
-            chunk_generation_count = 0
-
-            action_log = []
-
             # creating model
             # have to be done after fork to prevent 
             # duplicating CUDA context with ffmpeg nvenc
@@ -186,42 +209,35 @@ def main(output, robot_ip, gripper_ip, gripper_port,
             obs_pose_rep = cfg.task.pose_repr.obs_pose_repr
             action_pose_repr = cfg.task.pose_repr.action_pose_repr
 
+
             device = torch.device('cuda')
             policy.eval().to(device)
 
-            policy.debug_rtc = True
-
             print("Warming up policy inference")
-
-            # Grab one observation and build obs_dict just like in the main loop
-            obs = env.get_obs()
+            obs = env.get_obs()            
             episode_start_pose = np.concatenate([
                     obs[f'robot0_eef_pos'],
                     obs[f'robot0_eef_rot_axis_angle']
                 ], axis=-1)[-1]
-
+            # print("start pose", episode_start_pose)
             with torch.no_grad():
                 policy.reset()
                 obs_dict_np = get_real_umi_obs_dict(
-                    env_obs=obs,
-                    shape_meta=cfg.task.shape_meta,
+                    env_obs=obs, shape_meta=cfg.task.shape_meta, 
                     obs_pose_repr=obs_pose_rep,
-                    episode_start_pose=episode_start_pose
-                )
-                obs_dict = dict_apply(
-                    obs_dict_np,
-                    lambda x: torch.from_numpy(x).unsqueeze(0).to(device)
-                )
-
-                t0 = time.time()
-                _ = policy.predict_action_flow(obs_dict)   # just to warm up
-                infer_time = time.time() - t0
-
-                delay_steps = int(np.ceil(infer_time / dt))
-                delay_steps = max(delay_steps, 0)
-                delay_buf.append(delay_steps)
-
-                print(f"[Warmup] Inference took {infer_time*1000:.1f}ms -> delay ~ {delay_steps} steps")
+                    episode_start_pose=episode_start_pose)
+                obs_dict = dict_apply(obs_dict_np, 
+                    lambda x: torch.from_numpy(x).unsqueeze(0).to(device))
+                result = policy.predict_action(obs_dict)
+                action = result['action_pred'][0].detach().to('cpu').numpy()
+                # assert action.shape[-1] == 16
+                assert action.shape[-1] == 10
+                action = get_real_umi_action(action, obs, action_pose_repr)
+                # assert action.shape[-1] == 10
+                action_horizon = action.shape[0]
+                action_dim = action.shape[-1]
+                assert action.shape[-1] == 7
+                del result
 
             print('Ready!')
 
@@ -231,8 +247,6 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                 try:
                     # start episode
                     policy.reset()
-                    prev_raw_chunk = None
-                    chunk_generation_count = 0
                     start_delay = 1.0
                     eval_t_start = time.time() + start_delay
                     t_start = time.monotonic() + start_delay
@@ -247,6 +261,8 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                     # last_action_end_time = time.time()
                     action_log = []
 
+                    inference_idx = steps_per_inference
+                    all_time_actions = np.zeros((max_timesteps, max_timesteps + action_horizon, action_dim))
                     while True:
                         # calculate timing
                         t_cycle_end = t_start + (iter_idx + steps_per_inference) * dt
@@ -262,96 +278,58 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                         print(f'Obs latency {time.time() - obs_timestamps[-1]}')
 
                         # run inference
-                        # ====== Algorithm 1 / eval_flow-style RTC ======
                         with torch.no_grad():
-                            infer_start = time.time()
-
+                            s = time.time()
                             obs_dict_np = get_real_umi_obs_dict(
-                                env_obs=obs, shape_meta=cfg.task.shape_meta,
+                                env_obs=obs, shape_meta=cfg.task.shape_meta, 
                                 obs_pose_repr=obs_pose_rep,
-                                episode_start_pose=episode_start_pose
-                            )
-                            obs_dict = dict_apply(
-                                obs_dict_np,
-                                lambda x: torch.from_numpy(x).unsqueeze(0).to(device)
-                            )
+                                episode_start_pose=episode_start_pose)
+                            obs_dict = dict_apply(obs_dict_np, 
+                                lambda x: torch.from_numpy(x).unsqueeze(0).to(device))
+                            result = policy.predict_action(obs_dict)
+                            raw_action = result['action_pred'][0].detach().to('cpu').numpy()
+                            action = get_real_umi_action(raw_action, obs, action_pose_repr)
+                            action_timestamps = (np.arange(len(action), dtype=np.float64)) * dt + obs_timestamps[-1]
+                            this_target_poses = action
+                            all_time_actions[[iter_idx], iter_idx:iter_idx + action_horizon] = action
 
-                            H, D = policy.action_horizon, policy.action_dim
-                            s_horizon = min(steps_per_inference, H)   # execute_horizon = s
+                        if inference_idx == steps_per_inference:
+                            inference_idx = 0
 
-                            # 1) If this is the first iteration, create an initial prev_raw_chunk (naive plan)
-                            if prev_raw_chunk is None:
-                                base_result = policy.predict_action_flow(obs_dict)
-                                prev_raw_chunk = base_result['action_pred'][0].detach().cpu().numpy()
+                            if temporal_agg:
+                                # temporal ensemble
+                                action_seq_for_curr_step = all_time_actions[:, iter_idx:iter_idx + action_horizon]
+                                target_pose_list = []
+                                for i in range(action_horizon):
+                                    actions_for_curr_step = action_seq_for_curr_step[max(0, iter_idx - ensemble_steps + 1):iter_idx + 1, i]
+                                    actions_populated = np.all(actions_for_curr_step != 0, axis=1)
+                                    actions_for_curr_step = actions_for_curr_step[actions_populated]
 
-                            # 2) Decide whether to use RTC or naive chunking
-                            if use_rtc:
-                                # Conservative delay forecast d from recent inference times
-                                if len(delay_buf) > 0:
-                                    d_raw = max(delay_buf)
-                                else:
-                                    d_raw = s_horizon
-
-                                # Clamp: 0 <= d <= s
-                                d_forecast = int(max(0, min(d_raw, s_horizon)))
-
-                                # Prefix attention horizon: H - s (same as eval_flow: H - execute_horizon)
-                                prefix_attn_h = max(0, H - s_horizon)
-
-                                prev_chunk_tensor = torch.from_numpy(prev_raw_chunk).unsqueeze(0).to(device)
-                                result = policy.realtime_action(
-                                    obs_dict,
-                                    prev_action_chunk=prev_chunk_tensor,
-                                    inference_delay=d_forecast,
-                                    prefix_attention_horizon=prefix_attn_h,
-                                    prefix_attention_schedule=rtc_schedule,
-                                    max_guidance_weight=rtc_max_guidance,
-                                    n_steps=policy.num_inference_steps
-                                )
-                                print(f"[RTC] Generated chunk {chunk_generation_count} with d={d_forecast}, s={s_horizon}, H={H}, prefix_h={prefix_attn_h}")
+                                    k = -0.01
+                                    exp_weights = np.exp(k * np.arange(len(actions_for_curr_step)))
+                                    exp_weights = exp_weights / exp_weights.sum()
+                                    weighted_rotvec = R.from_rotvec(np.array(actions_for_curr_step)[:, 3:6]).mean(weights=exp_weights).as_rotvec()
+                                    weighted_action = (actions_for_curr_step * exp_weights[:, np.newaxis]).sum(axis=0, keepdims=True)
+                                    weighted_action[0][3:6] = weighted_rotvec
+                                    target_pose_list.append(weighted_action)
+                                this_target_poses = np.concatenate(target_pose_list, axis=0)
                             else:
-                                d_forecast = 0
-                                result = policy.predict_action_flow(obs_dict)
-                                print(f"[Standard] Generated chunk {chunk_generation_count}")
+                                this_target_poses = action
 
-                            curr_raw_chunk = result['action_pred'][0].detach().cpu().numpy()
-
-                            # Measure and log inference delay in steps
-                            inference_time = time.time() - infer_start
-                            delay_steps = int(np.ceil(inference_time / dt))
-                            delay_steps = max(delay_steps, 0)
-                            delay_buf.append(delay_steps)
-                            print(f"Inference took {inference_time*1000:.1f}ms -> delay ~ {delay_steps} steps")
-
-                            # 3) Convert BOTH prev and current chunks to real robot actions for mixing
-                            prev_action_world = get_real_umi_action(prev_raw_chunk, obs, action_pose_repr)
-                            curr_action_world = get_real_umi_action(curr_raw_chunk, obs, action_pose_repr)
-
-                            # Safety clamp (in case get_real_umi_action changes shape)
-                            H_world = min(prev_action_world.shape[0], curr_action_world.shape[0], H)
-                            s_horizon = min(s_horizon, H_world)
-                            d = min(d_forecast, s_horizon)
-
-                            # 4) Build the chunk to execute over the next s steps
-                            #    First d steps from previous chunk, remaining s-d from current chunk
-                            part_prev = prev_action_world[:d]
-                            part_curr = curr_action_world[d:s_horizon]
-
-                            if part_prev.shape[0] > 0 and part_curr.shape[0] > 0:
-                                this_target_poses = np.concatenate([part_prev, part_curr], axis=0)
-                            elif part_prev.shape[0] > 0:
-                                this_target_poses = part_prev
-                            else:
-                                this_target_poses = part_curr
-
-                            actions_to_execute = this_target_poses.shape[0]
-
-                            # 5) Timestamps for the next s steps
-                            action_timestamps = (
-                                np.arange(actions_to_execute, dtype=np.float64) * dt + obs_timestamps[-1]
-                            )
-
-                        # ====== END RTC BLOCK ======
+                        action_exec_latency = 0.01
+                        curr_time = time.time()
+                        is_new = action_timestamps > (curr_time + action_exec_latency)
+                        if np.sum(is_new) == 0:
+                            # exceeded time budget, still do something
+                            this_target_poses = this_target_poses[[-1]]
+                            # schedule on next available step
+                            next_step_idx = int(np.ceil((curr_time - eval_t_start) / dt))
+                            action_timestamp = eval_t_start + (next_step_idx) * dt
+                            print('Over budget', action_timestamp - curr_time)
+                            action_timestamps = np.array([action_timestamp])
+                        else:
+                            this_target_poses = this_target_poses[is_new]
+                            action_timestamps = action_timestamps[is_new]
 
                         for a, t in zip(this_target_poses, action_timestamps):
                             a = a.tolist()
@@ -373,23 +351,6 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                             compensate_latency=True
                         )
                         print(f"Submitted {len(this_target_poses)} steps of actions.")
-
-
-                        # 6) Shift new chunk so that it becomes the "current plan" for the next iteration
-                        #    This mirrors:
-                        #    next_action_chunk = concat(next_action_chunk[:, s:], zeros) in eval_flow.py
-                        if use_rtc:
-                            if s_horizon < H:
-                                shifted = curr_raw_chunk[s_horizon:]            # [H - s, D]
-                                pad = np.zeros((s_horizon, D), dtype=curr_raw_chunk.dtype)
-                                prev_raw_chunk = np.concatenate([shifted, pad], axis=0)
-                            else:
-                                prev_raw_chunk = np.zeros_like(curr_raw_chunk)
-                        else:
-                            # naive: just move current chunk forward without RTC
-                            prev_raw_chunk = curr_raw_chunk.copy()
-
-                        chunk_generation_count += 1
 
                         # visualize
                         episode_id = env.replay_buffer.n_episodes
@@ -438,16 +399,6 @@ def main(output, robot_ip, gripper_ip, gripper_port,
 
                 except KeyboardInterrupt:
                     print("Interrupted!")
-
-                    if hasattr(policy, "_rtc_W_log"):
-                        np.save(os.path.join(output, f"rtc_W_log_episode_{episode_id}.npy"), np.array(policy._rtc_W_log, dtype=object))
-                        print(f"Saved W logs with {len(policy._rtc_W_log)} entries.")
-
-                    if hasattr(policy, "_rtc_guidance_log"):
-                        np.save(os.path.join(output, f"rtc_guidance_log_episode_{episode_id}.npy"),
-                                np.array(policy._rtc_guidance_log))
-                        print(f"Saved guidance log with {len(policy._rtc_guidance_log)} entries.")
-
                     # stop robot.
                     env.end_episode()
                     if len(action_log) > 0:
