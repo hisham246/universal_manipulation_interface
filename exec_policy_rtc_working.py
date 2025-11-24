@@ -610,7 +610,7 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                             break
 
                         # wait for execution
-                        precise_wait(t_cycle_end - frame_latency)
+                        # precise_wait(t_cycle_end - frame_latency)
 
                         iter_idx += steps_per_inference
 

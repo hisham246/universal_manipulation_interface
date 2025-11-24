@@ -67,7 +67,7 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 @click.option('--match_dataset', '-m', default=None, help='Dataset used to overlay and adjust initial condition')
 @click.option('--match_camera', '-mc', default=0, type=int)
 @click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
-@click.option('--steps_per_inference', '-si', default=5, type=int, help="Action horizon for inference.")
+@click.option('--steps_per_inference', '-si', default=6, type=int, help="Action horizon for inference.")
 @click.option('--max_duration', '-md', default=120, help='Max duration for each epoch in seconds.')
 @click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
 @click.option('-nm', '--no_mirror', is_flag=True, default=False)
@@ -243,25 +243,23 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                     frame_latency = 1/60
                     precise_wait(eval_t_start - frame_latency, time_func=time.time)
                     print("Started!")
-
+                    iter_idx = 0
+                    # last_action_end_time = time.time()
                     action_log = []
 
-                    # last_scheduled_time = time.time() - dt   # or eval_t_start - dt
-
-                    # Discrete time index in units of dt
-                    t_step = 0                    # how many 10 Hz steps have been "committed"
-                    t0 = eval_t_start             # reference start time for control
-
                     while True:
+                        # calculate timing
+                        t_cycle_end = t_start + (iter_idx + steps_per_inference) * dt
+
                         # get obs
                         obs = env.get_obs()
-
+                        # print("Observations:", obs)
                         episode_start_pose = np.concatenate([
                             obs[f'robot0_eef_pos'],
                             obs[f'robot0_eef_rot_axis_angle']
                         ], axis=-1)[-1]
                         obs_timestamps = obs['timestamp']
-                        print(f'Obs latency {time.time() - obs_timestamps[-1]}')
+                        # print(f'Obs latency {time.time() - obs_timestamps[-1]}')
 
                         # run inference
                         # ====== Algorithm 1 / eval_flow-style RTC ======
@@ -279,7 +277,7 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                             )
 
                             H, D = policy.action_horizon, policy.action_dim
-                            s_min = steps_per_inference
+                            s_horizon = min(steps_per_inference, H)   # execute_horizon = s
 
                             # 1) If this is the first iteration, create an initial prev_raw_chunk (naive plan)
                             if prev_raw_chunk is None:
@@ -290,16 +288,12 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                             if use_rtc:
                                 # Conservative delay forecast d from recent inference times
                                 if len(delay_buf) > 0:
-                                    d_raw = max(delay_buf)      # conservative
+                                    d_raw = max(delay_buf)
                                 else:
-                                    d_raw = s_min
+                                    d_raw = s_horizon
 
-                                # Clamp delay to [0, H]
-                                d_forecast = int(max(0, min(d_raw, H)))
-
-                                # Algorithm 1: s = max(d, s_min), but not more than H
-                                s_horizon = int(max(s_min, d_forecast))
-                                s_horizon = min(s_horizon, H)
+                                # Clamp: 0 <= d <= s
+                                d_forecast = int(max(0, min(d_raw, s_horizon)))
 
                                 # Prefix attention horizon: H - s (same as eval_flow: H - execute_horizon)
                                 prefix_attn_h = max(0, H - s_horizon)
@@ -314,11 +308,11 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                                     max_guidance_weight=rtc_max_guidance,
                                     n_steps=policy.num_inference_steps
                                 )
-                                print(f"[RTC] Generated chunk {chunk_generation_count} with d={d_forecast}, s={s_horizon}, H={H}, prefix_h={prefix_attn_h}")
+                                # print(f"[RTC] Generated chunk {chunk_generation_count} with d={d_forecast}, s={s_horizon}, H={H}, prefix_h={prefix_attn_h}")
                             else:
                                 d_forecast = 0
                                 result = policy.predict_action_flow(obs_dict)
-                                print(f"[Standard] Generated chunk {chunk_generation_count}")
+                                # print(f"[Standard] Generated chunk {chunk_generation_count}")
 
                             curr_raw_chunk = result['action_pred'][0].detach().cpu().numpy()
 
@@ -326,7 +320,8 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                             inference_time = time.time() - infer_start
                             delay_steps = int(np.ceil(inference_time / dt))
                             delay_steps = max(delay_steps, 0)
-                            print(f"Inference took {inference_time*1000:.1f}ms -> delay ~ {delay_steps} steps")
+                            delay_buf.append(delay_steps)
+                            # print(f"Inference took {inference_time*1000:.1f}ms -> delay ~ {delay_steps} steps")
 
                             # 3) Convert BOTH prev and current chunks to real robot actions for mixing
                             prev_action_world = get_real_umi_action(prev_raw_chunk, obs, action_pose_repr)
@@ -352,24 +347,9 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                             actions_to_execute = this_target_poses.shape[0]
 
                             # 5) Timestamps for the next s steps
-                            # First timestamp is after the last scheduled one
-                            # start_time = last_scheduled_time + dt
-                            # action_timestamps = start_time + np.arange(actions_to_execute, dtype=np.float64) * dt
-
-                            # 5) Timestamps for the next s steps (discrete-time aligned)
-                            start_step = t_step + 1                   # next 10 Hz step
-                            end_step   = t_step + actions_to_execute  # last step of this chunk
-
-                            steps = np.arange(start_step, end_step + 1, dtype=np.float64)
-                            action_timestamps = t0 + steps * dt
-
-                            # Update discrete index and last scheduled time
-                            t_step = end_step
-                            last_scheduled_time = action_timestamps[-1]
-
-                            # Update global
-                            # last_scheduled_time = start_time + (actions_to_execute - 1) * dt
-
+                            action_timestamps = (
+                                np.arange(actions_to_execute, dtype=np.float64) * dt + obs_timestamps[-1]
+                            )
 
                         # ====== END RTC BLOCK ======
 
@@ -392,10 +372,7 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                             timestamps=action_timestamps,
                             compensate_latency=True
                         )
-                        print(f"Submitted {len(this_target_poses)} steps of actions.")
-
-                        observed_delay = s_horizon
-                        delay_buf.append(observed_delay)
+                        # print(f"Submitted {len(this_target_poses)} steps of actions.")
 
 
                         # 6) Shift new chunk so that it becomes the "current plan" for the next iteration
@@ -454,24 +431,10 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                             env.end_episode()
                             break
 
-                        if len(delay_buf) > 0:
-                            delay_steps_est = max(delay_buf)
-                        else:
-                            delay_steps_est = steps_per_inference  # safe fallback
+                        # wait for execution
+                        # precise_wait(t_cycle_end - frame_latency)
 
-                        lead_steps = delay_steps_est
-                        wake_step = t_step - lead_steps          # t_step is chunk end
-                        wake_step = max(wake_step, 0)            # clamp, in case lead_steps > t_step
-                        wake_time = t0 + wake_step * dt
-
-                        now = time.time()
-                        sleep_duration = wake_time - now
-
-                        if sleep_duration > 0:
-                            precise_wait(wake_time - frame_latency, time_func=time.time)
-                        else:
-                            # late; run inference immediately
-                            pass
+                        iter_idx += steps_per_inference
 
                 except KeyboardInterrupt:
                     print("Interrupted!")
