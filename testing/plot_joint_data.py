@@ -3,16 +3,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Load the CSV file
-desired_joint_positions_path = "/home/hisham246/uwaterloo/12_steps/joint_pos_desired.csv"
-actual_joint_path = "/home/hisham246/uwaterloo/12_steps/robot_state_pickplace_test_1.csv"
+desired_joint_positions_path = "/home/hisham246/uwaterloo/rtc_test_reaching_final/joint_pos_desired_episode_6.csv"
+actual_joint_path = "/home/hisham246/uwaterloo/rtc_test_reaching_final/robot_state_1_episode_6.csv"
 
 desired_joint_positions_df = pd.read_csv(desired_joint_positions_path)
 actual_joint_df = pd.read_csv(actual_joint_path)
 
 # Extract time, commanded positions, and actual positions
+# time = actual_joint_df['timestamp']
 time = actual_joint_df['timestamp'] - actual_joint_df['timestamp'].iloc[0]
-
-print(time)
 
 q_des = desired_joint_positions_df[['joint_pos_desired_0', 
                                     'joint_pos_desired_1', 
@@ -37,10 +36,10 @@ dq = actual_joint_df[['joint_velocities_0',
                      'joint_velocities_6']].to_numpy()
 
 # Discard the first row to avoid zero velocity artifacts
-time = time[1:]
-q_des = q_des[2:]
-q = q[1:]
-dq = dq[1:]
+time = time[500:]
+q_des = q_des[501:]
+q = q[500:]
+dq = dq[500:]
 
 # Compute desired joint velocities
 dt = np.gradient(time)

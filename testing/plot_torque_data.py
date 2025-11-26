@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Load the CSV file
-joint_path = "/home/hisham246/uwaterloo/pickplace_cartesian_impedance/robot_state_1_episode_1.csv"
+joint_path = "/home/hisham246/uwaterloo/rtc_test_reaching_final/robot_state_1_episode_4.csv"
 
 joint_df = pd.read_csv(joint_path)
 

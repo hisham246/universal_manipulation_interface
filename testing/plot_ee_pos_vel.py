@@ -2,18 +2,19 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-file_path_action = "/home/hisham246/uwaterloo/rtc_test_reaching_final/robot_state_2_episode_6.csv"
-file_path_time = "/home/hisham246/uwaterloo/rtc_test_reaching_final/robot_state_1_episode_6.csv"
+file_path_action = "/home/hisham246/uwaterloo/test_wiping_rtc_1/robot_state_2_episode_1.csv"
+file_path_time = "/home/hisham246/uwaterloo/test_wiping_rtc_1/robot_state_1_episode_1.csv"
 
 action = pd.read_csv(file_path_action)
 time_data = pd.read_csv(file_path_time)
 
 # Time (shifted to start at 0)
 time = time_data['timestamp'].to_numpy()
-time = time - time[0]
+# time = time[500:]
 
 # Commanded positions
 cmd_pos = action[['ee_pose_0', 'ee_pose_1', 'ee_pose_2']].to_numpy()
+# cmd_pos = cmd_pos[500:]
 
 # Velocity with fixed dt
 
@@ -33,7 +34,7 @@ labels = ['x', 'y', 'z']
 
 # Position
 for i in range(3):
-    axes[i].plot(time, cmd_pos[:, i], label='Commanded')
+    axes[i].plot(time, cmd_pos[:, i], label='Position')
     axes[i].set_title(f'Position - {labels[i]}')
     axes[i].set_xlabel('Time [s]')
     axes[i].set_ylabel('Position [m]')
@@ -42,7 +43,7 @@ for i in range(3):
 
 # Velocity
 for i in range(3):
-    axes[i+3].plot(time_vel, cmd_vel_smooth[:, i], label='Velocity (10 Hz)')
+    axes[i+3].plot(time_vel, cmd_vel_smooth[:, i], label='Velocity')
     axes[i+3].set_title(f'Velocity - {labels[i]}')
     axes[i+3].set_xlabel('Time [s]')
     axes[i+3].set_ylabel('Velocity [m/s]')

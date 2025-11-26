@@ -51,7 +51,7 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 @click.option('--match_dataset', '-m', default=None, help='Dataset used to overlay and adjust initial condition')
 @click.option('--match_camera', '-mc', default=0, type=int)
 @click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
-@click.option('--steps_per_inference', '-si', default=6, type=int, help="Action horizon for inference.")
+@click.option('--steps_per_inference', '-si', default=4, type=int, help="Action horizon for inference.")
 @click.option('--max_duration', '-md', default=120, help='Max duration for each epoch in seconds.')
 @click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
 @click.option('-nm', '--no_mirror', is_flag=True, default=False)
@@ -59,16 +59,15 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 @click.option('-ci', '--camera_intrinsics', type=str, default=None)
 @click.option('--mirror_crop', is_flag=True, default=False)
 @click.option('--mirror_swap', is_flag=True, default=False)
-@click.option('--use_rtc', is_flag=True, default=True)
 
 def main(output, robot_ip, gripper_ip, gripper_port,
-    match_dataset, match_camera,
-    vis_camera_idx, steps_per_inference, max_duration,
-    frequency, no_mirror, sim_fov, camera_intrinsics, 
-    mirror_crop, mirror_swap, use_rtc):
+    match_dataset, match_camera, vis_camera_idx, steps_per_inference, 
+    max_duration, frequency, no_mirror, sim_fov, camera_intrinsics, 
+    mirror_crop, mirror_swap):
 
     # Diffusion UNet
-    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/reaching_ball_multimodal_16.ckpt'
+    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/reaching_ball_multimodal_16.ckpt'
+    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/surface_wiping_unet_position_control.ckpt'
 
     payload = torch.load(open(ckpt_path, 'rb'), map_location='cpu', pickle_module=dill)
     cfg = payload['cfg']
@@ -268,35 +267,29 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                                 base_result = policy.predict_action_flow(obs_dict)
                                 prev_raw_chunk = base_result['action_pred'][0].detach().cpu().numpy()
 
-                            # 2) Decide whether to use RTC or naive chunking
-                            if use_rtc:
-                                # Conservative delay forecast d from recent inference times
-                                if len(delay_buf) > 0:
-                                    d_raw = max(delay_buf)
-                                else:
-                                    d_raw = s_horizon
-
-                                # Clamp: 0 <= d <= s
-                                d_forecast = int(max(0, min(d_raw, s_horizon)))
-
-                                # Prefix attention horizon: H - s (same as eval_flow: H - execute_horizon)
-                                prefix_attn_h = max(0, H - s_horizon)
-
-                                prev_chunk_tensor = torch.from_numpy(prev_raw_chunk).unsqueeze(0).to(device)
-                                result = policy.realtime_action(
-                                    obs_dict,
-                                    prev_action_chunk=prev_chunk_tensor,
-                                    inference_delay=d_forecast,
-                                    prefix_attention_horizon=prefix_attn_h,
-                                    prefix_attention_schedule=rtc_schedule,
-                                    max_guidance_weight=rtc_max_guidance,
-                                    n_steps=policy.num_inference_steps
-                                )
-                                # print(f"[RTC] Generated chunk {chunk_generation_count} with d={d_forecast}, s={s_horizon}, H={H}, prefix_h={prefix_attn_h}")
+                            # Conservative delay forecast d from recent inference times
+                            if len(delay_buf) > 0:
+                                d_raw = max(delay_buf)
                             else:
-                                d_forecast = 0
-                                result = policy.predict_action_flow(obs_dict)
-                                # print(f"[Standard] Generated chunk {chunk_generation_count}")
+                                d_raw = s_horizon
+
+                            # Clamp: 0 <= d <= s
+                            d_forecast = int(max(0, min(d_raw, s_horizon)))
+
+                            # Prefix attention horizon: H - s (same as eval_flow: H - execute_horizon)
+                            prefix_attn_h = max(0, H - s_horizon)
+
+                            prev_chunk_tensor = torch.from_numpy(prev_raw_chunk).unsqueeze(0).to(device)
+                            result = policy.realtime_action(
+                                obs_dict,
+                                prev_action_chunk=prev_chunk_tensor,
+                                inference_delay=d_forecast,
+                                prefix_attention_horizon=prefix_attn_h,
+                                prefix_attention_schedule=rtc_schedule,
+                                max_guidance_weight=rtc_max_guidance,
+                                n_steps=policy.num_inference_steps
+                            )
+                                # print(f"[RTC] Generated chunk {chunk_generation_count} with d={d_forecast}, s={s_horizon}, H={H}, prefix_h={prefix_attn_h}"))
 
                             curr_raw_chunk = result['action_pred'][0].detach().cpu().numpy()
 
@@ -362,16 +355,12 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                         # 6) Shift new chunk so that it becomes the "current plan" for the next iteration
                         #    This mirrors:
                         #    next_action_chunk = concat(next_action_chunk[:, s:], zeros) in eval_flow.py
-                        if use_rtc:
-                            if s_horizon < H:
-                                shifted = curr_raw_chunk[s_horizon:]            # [H - s, D]
-                                pad = np.zeros((s_horizon, D), dtype=curr_raw_chunk.dtype)
-                                prev_raw_chunk = np.concatenate([shifted, pad], axis=0)
-                            else:
-                                prev_raw_chunk = np.zeros_like(curr_raw_chunk)
+                        if s_horizon < H:
+                            shifted = curr_raw_chunk[s_horizon:]            # [H - s, D]
+                            pad = np.zeros((s_horizon, D), dtype=curr_raw_chunk.dtype)
+                            prev_raw_chunk = np.concatenate([shifted, pad], axis=0)
                         else:
-                            # naive: just move current chunk forward without RTC
-                            prev_raw_chunk = curr_raw_chunk.copy()
+                            prev_raw_chunk = np.zeros_like(curr_raw_chunk)
 
                         chunk_generation_count += 1
 
@@ -416,7 +405,7 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                             break
 
                         # wait for execution
-                        # precise_wait(t_cycle_end - frame_latency)
+                        precise_wait(t_cycle_end - frame_latency)
 
                         iter_idx += steps_per_inference
 
