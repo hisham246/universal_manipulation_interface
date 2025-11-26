@@ -79,7 +79,7 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 # @click.option('--camera_reorder', '-cr', default='021')
 @click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
 # @click.option('--init_joints', '-j', is_flag=True, default=False, help="Whether to initialize robot joint configuration in the beginning.")
-@click.option('--steps_per_inference', '-si', default= 16, type=int, help="Action horizon for inference.")
+@click.option('--steps_per_inference', '-si', default= 8, type=int, help="Action horizon for inference.")
 @click.option('--max_duration', '-md', default=60, help='Max duration for each epoch in seconds.')
 @click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
 # @click.option('--command_latency', '-cl', default=0.01, type=float, help="Latency between receiving SapceMouse command to executing on Robot in Sec.")
@@ -102,7 +102,7 @@ def main(output, robot_ip, gripper_ip, gripper_port,
 
     # Diffusion UNet
     # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_pickplace_2.ckpt'
-    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/reaching_ball_multimodal_16.ckpt'
+    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/reaching_ball_multimodal.ckpt'
 
 
     # Compliance policy unet
@@ -301,18 +301,18 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                             this_target_poses = this_target_poses[is_new]
                             action_timestamps = action_timestamps[is_new]
 
-                        for a, t in zip(this_target_poses, action_timestamps):
-                            a = a.tolist()
-                            # print("Actions", a)
-                            action_log.append({
-                                'timestamp': t,
-                                'ee_pos_0': a[0],
-                                'ee_pos_1': a[1],
-                                'ee_pos_2': a[2],
-                                'ee_rot_0': a[3],
-                                'ee_rot_1': a[4],
-                                'ee_rot_2': a[5]
-                            })
+                        # for a, t in zip(this_target_poses, action_timestamps):
+                        #     a = a.tolist()
+                        #     # print("Actions", a)
+                        #     action_log.append({
+                        #         'timestamp': t,
+                        #         'ee_pos_0': a[0],
+                        #         'ee_pos_1': a[1],
+                        #         'ee_pos_2': a[2],
+                        #         'ee_rot_0': a[3],
+                        #         'ee_rot_1': a[4],
+                        #         'ee_rot_2': a[5]
+                        #     })
 
                         # execute actions
                         env.exec_actions(
@@ -363,7 +363,7 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                             break
 
                         # wait for execution
-                        precise_wait(t_cycle_end - frame_latency)
+                        # precise_wait(t_cycle_end - frame_latency)
 
                         iter_idx += steps_per_inference
 
@@ -371,11 +371,11 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                     print("Interrupted!")
                     # stop robot.
                     env.end_episode()
-                    if len(action_log) > 0:
-                        df = pd.DataFrame(action_log)
-                        csv_path = os.path.join(output, f"policy_actions_episode_{episode_id}.csv")
-                        df.to_csv(csv_path, index=False)
-                        print(f"Saved actions to {csv_path}")
+                    # if len(action_log) > 0:
+                    #     df = pd.DataFrame(action_log)
+                    #     csv_path = os.path.join(output, f"policy_actions_episode_{episode_id}.csv")
+                    #     df.to_csv(csv_path, index=False)
+                    #     print(f"Saved actions to {csv_path}")
                 
                 print("Stopped.")
 

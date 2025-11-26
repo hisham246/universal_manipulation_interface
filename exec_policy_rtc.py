@@ -51,7 +51,7 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 @click.option('--match_dataset', '-m', default=None, help='Dataset used to overlay and adjust initial condition')
 @click.option('--match_camera', '-mc', default=0, type=int)
 @click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
-@click.option('--steps_per_inference', '-si', default=4, type=int, help="Action horizon for inference.")
+@click.option('--steps_per_inference', '-si', default=5, type=int, help="Action horizon for inference.")
 @click.option('--max_duration', '-md', default=120, help='Max duration for each epoch in seconds.')
 @click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
 @click.option('-nm', '--no_mirror', is_flag=True, default=False)
@@ -66,8 +66,8 @@ def main(output, robot_ip, gripper_ip, gripper_port,
     mirror_crop, mirror_swap):
 
     # Diffusion UNet
-    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/reaching_ball_multimodal_16.ckpt'
-    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/surface_wiping_unet_position_control.ckpt'
+    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/reaching_ball_multimodal_16.ckpt'
+    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/surface_wiping_unet_position_control.ckpt'
 
     payload = torch.load(open(ckpt_path, 'rb'), map_location='cpu', pickle_module=dill)
     cfg = payload['cfg']
@@ -232,7 +232,7 @@ def main(output, robot_ip, gripper_ip, gripper_port,
 
                     while True:
                         # calculate timing
-                        t_cycle_end = t_start + (iter_idx + steps_per_inference) * dt
+                        # t_cycle_end = t_start + (iter_idx + steps_per_inference) * dt
 
                         # get obs
                         obs = env.get_obs()
@@ -289,7 +289,7 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                                 max_guidance_weight=rtc_max_guidance,
                                 n_steps=policy.num_inference_steps
                             )
-                                # print(f"[RTC] Generated chunk {chunk_generation_count} with d={d_forecast}, s={s_horizon}, H={H}, prefix_h={prefix_attn_h}"))
+                            # print(f"[RTC] Generated chunk {chunk_generation_count} with d={d_forecast}, s={s_horizon}, H={H}, prefix_h={prefix_attn_h}"))
 
                             curr_raw_chunk = result['action_pred'][0].detach().cpu().numpy()
 
@@ -330,18 +330,18 @@ def main(output, robot_ip, gripper_ip, gripper_port,
 
                         # ====== END RTC BLOCK ======
 
-                        for a, t in zip(this_target_poses, action_timestamps):
-                            a = a.tolist()
-                            # print("Actions", a)
-                            action_log.append({
-                                'timestamp': t,
-                                'ee_pos_0': a[0],
-                                'ee_pos_1': a[1],
-                                'ee_pos_2': a[2],
-                                'ee_rot_0': a[3],
-                                'ee_rot_1': a[4],
-                                'ee_rot_2': a[5]
-                            })
+                        # for a, t in zip(this_target_poses, action_timestamps):
+                        #     a = a.tolist()
+                        #     # print("Actions", a)
+                        #     action_log.append({
+                        #         'timestamp': t,
+                        #         'ee_pos_0': a[0],
+                        #         'ee_pos_1': a[1],
+                        #         'ee_pos_2': a[2],
+                        #         'ee_rot_0': a[3],
+                        #         'ee_rot_1': a[4],
+                        #         'ee_rot_2': a[5]
+                        #     })
 
                         # execute actions
                         env.exec_actions(
@@ -405,7 +405,7 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                             break
 
                         # wait for execution
-                        precise_wait(t_cycle_end - frame_latency)
+                        # precise_wait(t_cycle_end - frame_latency)
 
                         iter_idx += steps_per_inference
 
@@ -423,11 +423,11 @@ def main(output, robot_ip, gripper_ip, gripper_port,
 
                     # stop robot.
                     env.end_episode()
-                    if len(action_log) > 0:
-                        df = pd.DataFrame(action_log)
-                        csv_path = os.path.join(output, f"policy_actions_episode_{episode_id}.csv")
-                        df.to_csv(csv_path, index=False)
-                        print(f"Saved actions to {csv_path}")
+                    # if len(action_log) > 0:
+                        # df = pd.DataFrame(action_log)
+                        # csv_path = os.path.join(output, f"policy_actions_episode_{episode_id}.csv")
+                        # df.to_csv(csv_path, index=False)
+                        # print(f"Saved actions to {csv_path}")
                 
                 print("Stopped.")
 

@@ -282,9 +282,11 @@ class FrankaInterpolationController(mp.Process):
 
         # Define the headers
         csv_fieldnames_2 = (
-            [f"ee_pose_{i}" for i in range(6)] +
-            [f"joint_pos_{i}" for i in range(7)] +
-            [f"joint_vel_{i}" for i in range(7)]
+            ["timestamp"] +
+            [f"commanded_ee_pose_{i}" for i in range(6)] +
+            [f"actual_ee_pose_{i}" for i in range(6)] +
+            [f"actual_joint_pos_{i}" for i in range(7)] +
+            [f"actual_joint_vel_{i}" for i in range(7)]
         )
 
         # Write header once
@@ -378,7 +380,7 @@ class FrankaInterpolationController(mp.Process):
                     if self.verbose:
                         print("[FrankaPositionalController] IK failed. Joint position not logged.")
 
-  
+
                 # send command to robot
                 robot.update_desired_ee_pose(ee_pose)
 
@@ -406,18 +408,30 @@ class FrankaInterpolationController(mp.Process):
                     writer = csv.DictWriter(csvfile, fieldnames=csv_fieldnames_1)
                     writer.writerow(flat_state)
 
+                # Collect and flatten low-level state
+
+                commanded_row = {}
+                commanded_row[f"timestamp"] = t_now
+                for i in range(6):
+                    commanded_row[f"commanded_ee_pose_{i}"] = ee_pose[i]
+
+                # Write to low-level CSV
+                with open(robot_state_path_2, mode='a', newline='') as csvfile:
+                    writer = csv.DictWriter(csvfile, fieldnames=csv_fieldnames_2)
+                    writer.writerow(commanded_row)
+
 
                 # Collect and flatten low-level state
-                ee_pose = state['ActualTCPPose']        # 6D pose
+                actual_ee_pose = state['ActualTCPPose']        # 6D pose
                 joint_pos = state['ActualQ']            # 7D positions
                 joint_vel = state['ActualQd']           # 7D velocities
 
                 lowlevel_row = {}
                 for i in range(6):
-                    lowlevel_row[f"ee_pose_{i}"] = ee_pose[i]
+                    lowlevel_row[f"actual_ee_pose_{i}"] = actual_ee_pose[i]
                 for i in range(7):
-                    lowlevel_row[f"joint_pos_{i}"] = joint_pos[i]
-                    lowlevel_row[f"joint_vel_{i}"] = joint_vel[i]
+                    lowlevel_row[f"actual_joint_pos_{i}"] = joint_pos[i]
+                    lowlevel_row[f"actual_joint_vel_{i}"] = joint_vel[i]
 
                 # Write to low-level CSV
                 with open(robot_state_path_2, mode='a', newline='') as csvfile:
