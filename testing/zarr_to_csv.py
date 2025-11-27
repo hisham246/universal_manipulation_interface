@@ -8,12 +8,12 @@ register_codecs()
 
 # Open the zarr dataset
 # zarr_path = "/home/hisham246/uwaterloo/umi/surface_wiping_trial_1/dataset_stiffness.zarr.zip"
-zarr_path = "/home/hisham246/uwaterloo/umi/reaching_ball_multimodal/reaching_ball_multimodal.zarr.zip"
-csv_path = "/home/hisham246/uwaterloo/umi/reaching_ball_multimodal/csv/"
+zarr_path = "/home/hisham246/uwaterloo/umi/reaching_ball_multimodal/reaching_ball_multimodal_filtered.zarr.zip"
+csv_path = "/home/hisham246/uwaterloo/umi/reaching_ball_multimodal/csv_filtered_2/"
 os.makedirs(csv_path, exist_ok=True)
 root = zarr.open(zarr_path)
 
-# print(root.tree()) 
+print(root.tree()) 
 
 # Extract episode boundaries
 episode_ends = root['meta']['episode_ends'][:]
@@ -21,7 +21,7 @@ episode_starts = np.concatenate(([0], episode_ends[:-1]))
 
 # List of data arrays to extract
 # data_keys = ["timestamp", "robot0_eef_pos", "robot0_eef_rot_axis_angle", "robot0_stiffness"]
-data_keys = ["timestamp", "robot0_eef_pos", "robot0_eef_rot_axis_angle"]
+data_keys = ["timestamp", "robot0_eef_pos", "robot0_eef_rot_axis_angle", "robot0_demo_end_pose", "robot0_demo_start_pose"]
 # data_keys = ["robot0_eef_pos", "robot0_eef_rot_axis_angle"]
 
 

@@ -83,7 +83,7 @@ shape_meta: &shape_meta
     rotation_rep: rotation_6d
 
 task_name: &task_name umi
-dataset_path: /home/h2khalil/vic_umi/VIC-UMI_Train_Data/reaching_ball_multimodal.zarr.zip
+dataset_path: /home/h2khalil/vic_umi/VIC-UMI_Train_Data/reaching_ball_multimodal_filtered.zarr.zip
 pose_repr: &pose_repr
   obs_pose_repr: relative # abs or rel
   action_pose_repr: relative # abs or rel or delta

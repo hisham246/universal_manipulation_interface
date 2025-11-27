@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-file_path = "/home/hisham246/uwaterloo/test_reaching_rtc/robot_state_2_episode_3.csv"
+file_path = "/home/hisham246/uwaterloo/test_reaching_vanilla/robot_state_2_episode_1.csv"
 # file_path_time = "/home/hisham246/uwaterloo/test_reaching_rtc/robot_state_1_episode_1.csv"
 
 action = pd.read_csv(file_path)
@@ -20,6 +20,7 @@ print(state)
 
 # Time (shifted to start at 0)
 time = action['timestamp'].to_numpy()
+time = time - time[0]
 # time = time[500:]
 
 # Commanded positions
