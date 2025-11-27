@@ -624,6 +624,5 @@ class DiffusionUnetTimmPolicy(BaseImagePolicy):
     #         self._rtc_W_log.append(w.detach().cpu().numpy())
     #     return w
     
-    # def forward(self, batch):
-    #     return self.compute_loss(batch)
-
+    def forward(self, batch):
+        return self.compute_loss(batch)
