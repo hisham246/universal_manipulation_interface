@@ -152,7 +152,7 @@ def main(output, robot_ip, gripper_ip, gripper_port,
             prev_raw_chunk = None      # shape [H, D] in policy action space
             chunk_generation_count = 0
 
-            action_log = []
+            # action_log = []
 
             # creating model
             # have to be done after fork to prevent 
@@ -228,7 +228,7 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                     print("Started!")
                     iter_idx = 0
                     # last_action_end_time = time.time()
-                    action_log = []
+                    # action_log = []
 
                     while True:
                         # calculate timing
