@@ -267,362 +267,362 @@ class DiffusionUnetTimmPolicy(BaseImagePolicy):
 
         return loss
     
-    # Flow Policy
-    @torch.no_grad()
-    def _fm_ddim_step(self, z_t, t_id, t_id_next, global_cond):
-        # α, σ, η, τ at current/next ids
-        a_t, s_t, eta_t, tau_t = self.flow_adapter._alpha_sigma_eta(int(t_id),   z_t.device, z_t.dtype)
-        a_s, s_s, eta_s, tau_s = self.flow_adapter._alpha_sigma_eta(int(t_id_next), z_t.device, z_t.dtype)
+    # # Flow Policy
+    # @torch.no_grad()
+    # def _fm_ddim_step(self, z_t, t_id, t_id_next, global_cond):
+    #     # α, σ, η, τ at current/next ids
+    #     a_t, s_t, eta_t, tau_t = self.flow_adapter._alpha_sigma_eta(int(t_id),   z_t.device, z_t.dtype)
+    #     a_s, s_s, eta_s, tau_s = self.flow_adapter._alpha_sigma_eta(int(t_id_next), z_t.device, z_t.dtype)
 
-        # model → (ε, x0)
-        v = self.flow_adapter.velocity(z_t, t_id, global_cond)   # your preferred direction
+    #     # model → (ε, x0)
+    #     v = self.flow_adapter.velocity(z_t, t_id, global_cond)   # your preferred direction
 
-        # Euler in reparametrized state ẑ := z / (α+σ), step by Δη = (η_t - η_s) ≥ 0
-        delta = (eta_t - eta_s)                               # positive along backward ids
-        z_tilde = z_t / (a_t + s_t)
-        z_tilde_next = z_tilde + v * delta
-        z_next = z_tilde_next * (a_s + s_s)
+    #     # Euler in reparametrized state ẑ := z / (α+σ), step by Δη = (η_t - η_s) ≥ 0
+    #     delta = (eta_t - eta_s)                               # positive along backward ids
+    #     z_tilde = z_t / (a_t + s_t)
+    #     z_tilde_next = z_tilde + v * delta
+    #     z_next = z_tilde_next * (a_s + s_s)
 
-        return z_next, float(tau_t), float(tau_s), v
+    #     return z_next, float(tau_t), float(tau_s), v
 
-    @torch.no_grad()
-    def sample_chunk_flow(self, global_cond, generator=None, n_steps=None):
-        """
-        OT flow sampler using forward integration.
-        Uses backward scheduler timesteps (45→0) but forward flow time (0.1→1.0).
-        """
-        if n_steps is None: 
-            n_steps = self.flow_n_steps
-        B = global_cond.shape[0]
-        H, D = self.action_horizon, self.action_dim
+    # @torch.no_grad()
+    # def sample_chunk_flow(self, global_cond, generator=None, n_steps=None):
+    #     """
+    #     OT flow sampler using forward integration.
+    #     Uses backward scheduler timesteps (45→0) but forward flow time (0.1→1.0).
+    #     """
+    #     if n_steps is None: 
+    #         n_steps = self.flow_n_steps
+    #     B = global_cond.shape[0]
+    #     H, D = self.action_horizon, self.action_dim
 
-        # Start from standard Normal (noise)
-        z = torch.randn((B, H, D), dtype=self.dtype, device=global_cond.device, generator=generator)
+    #     # Start from standard Normal (noise)
+    #     z = torch.randn((B, H, D), dtype=self.dtype, device=global_cond.device, generator=generator)
 
-        # Get scheduler timesteps (backward: 45→0)
-        self.noise_scheduler.set_timesteps(n_steps)
+    #     # Get scheduler timesteps (backward: 45→0)
+    #     self.noise_scheduler.set_timesteps(n_steps)
 
-        t_seq = self.noise_scheduler.timesteps
-        taus  = taus_from_scheduler(self.noise_scheduler, device=z.device, dtype=z.dtype)   # [N]
-        # Build ᾱ sequence aligned with t_seq, applying the same final override as diffusers
-        ab_full = self.noise_scheduler.alphas_cumprod.to(z.device, z.dtype)
-        ab_seq = []
-        last_id = int(t_seq[-1].item())
-        use_final = bool(getattr(self.noise_scheduler.config, "set_alpha_to_one", False))
-        fa = getattr(self.noise_scheduler, "final_alpha_cumprod", None)
-        for tid in t_seq.tolist():
-            if use_final and tid == last_id and (fa is not None):
-                ab_seq.append(torch.as_tensor(fa, device=z.device, dtype=z.dtype))
-            else:
-                ab_seq.append(ab_full[int(tid)])
-        ab_seq = torch.stack(ab_seq)  # [N]
+    #     t_seq = self.noise_scheduler.timesteps
+    #     taus  = taus_from_scheduler(self.noise_scheduler, device=z.device, dtype=z.dtype)   # [N]
+    #     # Build ᾱ sequence aligned with t_seq, applying the same final override as diffusers
+    #     ab_full = self.noise_scheduler.alphas_cumprod.to(z.device, z.dtype)
+    #     ab_seq = []
+    #     last_id = int(t_seq[-1].item())
+    #     use_final = bool(getattr(self.noise_scheduler.config, "set_alpha_to_one", False))
+    #     fa = getattr(self.noise_scheduler, "final_alpha_cumprod", None)
+    #     for tid in t_seq.tolist():
+    #         if use_final and tid == last_id and (fa is not None):
+    #             ab_seq.append(torch.as_tensor(fa, device=z.device, dtype=z.dtype))
+    #         else:
+    #             ab_seq.append(ab_full[int(tid)])
+    #     ab_seq = torch.stack(ab_seq)  # [N]
 
-        def _as_from_ab(ab):
-            ab = torch.clamp(ab, 1e-12, 1.0)
-            a  = ab.sqrt()
-            s  = torch.sqrt(torch.clamp(1.0 - ab, 0.0, 1.0))
-            return a, s
+    #     def _as_from_ab(ab):
+    #         ab = torch.clamp(ab, 1e-12, 1.0)
+    #         a  = ab.sqrt()
+    #         s  = torch.sqrt(torch.clamp(1.0 - ab, 0.0, 1.0))
+    #         return a, s
 
-        for k in range(len(t_seq)-1):
-            t = int(t_seq[k].item())
-            # s = int(t_seq[k+1].item())
-            tau_t = float(taus[k].item())
-            tau_s = float(taus[k+1].item())
+    #     for k in range(len(t_seq)-1):
+    #         t = int(t_seq[k].item())
+    #         # s = int(t_seq[k+1].item())
+    #         tau_t = float(taus[k].item())
+    #         tau_s = float(taus[k+1].item())
 
-            # ᾱ→(a,s) for current/next ids, using the overridden sequence
-            a_t, s_t = _as_from_ab(ab_seq[k])
-            a_s, s_s = _as_from_ab(ab_seq[k+1])
+    #         # ᾱ→(a,s) for current/next ids, using the overridden sequence
+    #         a_t, s_t = _as_from_ab(ab_seq[k])
+    #         a_s, s_s = _as_from_ab(ab_seq[k+1])
 
-            # Δη = η_t - η_s = (τ_s - τ_t)  (positive along backward ids)
-            delta_eta = (tau_s - tau_t)
+    #         # Δη = η_t - η_s = (τ_s - τ_t)  (positive along backward ids)
+    #         delta_eta = (tau_s - tau_t)
 
-            # velocity from your adapter at id t
-            t_b = torch.full((z.shape[0],), t, dtype=torch.long, device=z.device)
-            v = self.flow_adapter.velocity(z, t_b, global_cond)   # [B,H,D]
+    #         # velocity from your adapter at id t
+    #         t_b = torch.full((z.shape[0],), t, dtype=torch.long, device=z.device)
+    #         v = self.flow_adapter.velocity(z, t_b, global_cond)   # [B,H,D]
 
-            # FM/DDIM step in reparametrized space ẑ = z / (a+σ)
-            # z_before = z.norm().item()
-            # z_before = z.clone()
-            z_tilde = z / (a_t + s_t)
-            z_tilde_next = z_tilde + v * delta_eta
-            z = (z_tilde_next * (a_s + s_s)).detach()
-            # z_after = z.norm().item()
+    #         # FM/DDIM step in reparametrized space ẑ = z / (a+σ)
+    #         # z_before = z.norm().item()
+    #         # z_before = z.clone()
+    #         z_tilde = z / (a_t + s_t)
+    #         z_tilde_next = z_tilde + v * delta_eta
+    #         z = (z_tilde_next * (a_s + s_s)).detach()
+    #         # z_after = z.norm().item()
 
-            # if getattr(self, "debug_flow", False):
-            #     v_mag = v.reshape(B, -1).norm(dim=1).mean()
-            #     dz    = (z - z_before).reshape(B, -1)
-            #     dz_mag = dz.norm(dim=1).mean()
-            #     z_before_mag = z_before.reshape(B, -1).norm(dim=1).mean()
-            #     z_after_mag  = z.reshape(B, -1).norm(dim=1).mean()
+    #         # if getattr(self, "debug_flow", False):
+    #         #     v_mag = v.reshape(B, -1).norm(dim=1).mean()
+    #         #     dz    = (z - z_before).reshape(B, -1)
+    #         #     dz_mag = dz.norm(dim=1).mean()
+    #         #     z_before_mag = z_before.reshape(B, -1).norm(dim=1).mean()
+    #         #     z_after_mag  = z.reshape(B, -1).norm(dim=1).mean()
 
-            #     print(
-            #         f"[FLOW] step {k:02d} t={t:3d} "
-            #         f"tau={tau_t:.4f}->{tau_s:.4f} "
-            #         f"Δη={delta_eta:.4f} "
-            #         f"||z_before||={z_before_mag.item():.2f} "
-            #         f"||z_after||={z_after_mag.item():.2f} "
-            #         f"||v||={v_mag.item():.2f} "
-            #         f"||Δz||={dz_mag.item():.2f} "
-            #         f"rel_step={dz_mag.item() / (z_before_mag.item() + 1e-8):.2f}"
-            #     )
+    #         #     print(
+    #         #         f"[FLOW] step {k:02d} t={t:3d} "
+    #         #         f"tau={tau_t:.4f}->{tau_s:.4f} "
+    #         #         f"Δη={delta_eta:.4f} "
+    #         #         f"||z_before||={z_before_mag.item():.2f} "
+    #         #         f"||z_after||={z_after_mag.item():.2f} "
+    #         #         f"||v||={v_mag.item():.2f} "
+    #         #         f"||Δz||={dz_mag.item():.2f} "
+    #         #         f"rel_step={dz_mag.item() / (z_before_mag.item() + 1e-8):.2f}"
+    #         #     )
 
 
-            #     self._denoise_log.append({
-            #         "mode": "offline",
-            #         "k": int(k),
-            #         "t": int(t),
-            #         "tau_t": float(tau_t),
-            #         "tau_s": float(tau_s),
-            #         "delta_eta": float(delta_eta),
-            #         "v_mag": float(v_mag.item()),
-            #         "dz_mag": float(dz_mag.item()),
-            #     })
+    #         #     self._denoise_log.append({
+    #         #         "mode": "offline",
+    #         #         "k": int(k),
+    #         #         "t": int(t),
+    #         #         "tau_t": float(tau_t),
+    #         #         "tau_s": float(tau_s),
+    #         #         "delta_eta": float(delta_eta),
+    #         #         "v_mag": float(v_mag.item()),
+    #         #         "dz_mag": float(dz_mag.item()),
+    #         #     })
 
-        return z  # normalized; unnormalize in predict_action
+    #     return z  # normalized; unnormalize in predict_action
 
-    def predict_action_flow(self, obs_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        assert 'past_action' not in obs_dict
-        nobs = self.normalizer.normalize(obs_dict)
-        global_cond = self.obs_encoder(nobs)  # [B, feat]
+    # def predict_action_flow(self, obs_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    #     assert 'past_action' not in obs_dict
+    #     nobs = self.normalizer.normalize(obs_dict)
+    #     global_cond = self.obs_encoder(nobs)  # [B, feat]
 
-        # Flow sampling in normalized space, then unnormalize
-        nsample = self.sample_chunk_flow(global_cond=global_cond, n_steps=self.flow_n_steps)
-        action_pred = self.normalizer['action'].unnormalize(nsample)
+    #     # Flow sampling in normalized space, then unnormalize
+    #     nsample = self.sample_chunk_flow(global_cond=global_cond, n_steps=self.flow_n_steps)
+    #     action_pred = self.normalizer['action'].unnormalize(nsample)
 
-        return {'action': action_pred, 'action_pred': action_pred}
+    #     return {'action': action_pred, 'action_pred': action_pred}
     
-    @torch.no_grad()
-    def realtime_action(
-        self,
-        obs_dict: Dict[str, torch.Tensor],
-        prev_action_chunk: torch.Tensor,
-        inference_delay: int,
-        prefix_attention_horizon: int,
-        prefix_attention_schedule: str = "exp",
-        max_guidance_weight: float = 5.0,
-        n_steps: int = None,
-    ) -> Dict[str, torch.Tensor]:
-        if n_steps is None:
-            n_steps = self.flow_n_steps
+    # @torch.no_grad()
+    # def realtime_action(
+    #     self,
+    #     obs_dict: Dict[str, torch.Tensor],
+    #     prev_action_chunk: torch.Tensor,
+    #     inference_delay: int,
+    #     prefix_attention_horizon: int,
+    #     prefix_attention_schedule: str = "exp",
+    #     max_guidance_weight: float = 5.0,
+    #     n_steps: int = None,
+    # ) -> Dict[str, torch.Tensor]:
+    #     if n_steps is None:
+    #         n_steps = self.flow_n_steps
 
-        # Encode + normalize
-        nobs = self.normalizer.normalize(obs_dict)
-        global_cond = self.obs_encoder(nobs)
-        B = global_cond.shape[0]
-        H, D = self.action_horizon, self.action_dim
-        y_prev = self.normalizer['action'].normalize(prev_action_chunk)
+    #     # Encode + normalize
+    #     nobs = self.normalizer.normalize(obs_dict)
+    #     global_cond = self.obs_encoder(nobs)
+    #     B = global_cond.shape[0]
+    #     H, D = self.action_horizon, self.action_dim
+    #     y_prev = self.normalizer['action'].normalize(prev_action_chunk)
 
-        # weights for guidance
-        weights = self._get_prefix_weights(
-            inference_delay, prefix_attention_horizon, H, prefix_attention_schedule
-        )
+    #     # weights for guidance
+    #     weights = self._get_prefix_weights(
+    #         inference_delay, prefix_attention_horizon, H, prefix_attention_schedule
+    #     )
 
-        # init latent on the correct device/dtype
-        z = torch.randn((B, H, D), dtype=self.dtype, device=global_cond.device)
+    #     # init latent on the correct device/dtype
+    #     z = torch.randn((B, H, D), dtype=self.dtype, device=global_cond.device)
 
-        # Scheduler timesteps and taus
-        sched = self.noise_scheduler
-        sched.set_timesteps(n_steps)
-        t_seq = sched.timesteps
-        taus  = taus_from_scheduler(sched, device=z.device, dtype=z.dtype)  # [N]
+    #     # Scheduler timesteps and taus
+    #     sched = self.noise_scheduler
+    #     sched.set_timesteps(n_steps)
+    #     t_seq = sched.timesteps
+    #     taus  = taus_from_scheduler(sched, device=z.device, dtype=z.dtype)  # [N]
 
-        # Build ᾱ sequence aligned with t_seq, honoring set_alpha_to_one/final_alpha_cumprod
-        ab_full = sched.alphas_cumprod.to(z.device, z.dtype)
-        ab_seq = []
-        last_id = int(t_seq[-1].item())
-        use_final = bool(getattr(sched.config, "set_alpha_to_one", False))
-        fa = getattr(sched, "final_alpha_cumprod", None)
+    #     # Build ᾱ sequence aligned with t_seq, honoring set_alpha_to_one/final_alpha_cumprod
+    #     ab_full = sched.alphas_cumprod.to(z.device, z.dtype)
+    #     ab_seq = []
+    #     last_id = int(t_seq[-1].item())
+    #     use_final = bool(getattr(sched.config, "set_alpha_to_one", False))
+    #     fa = getattr(sched, "final_alpha_cumprod", None)
 
-        for tid in t_seq.tolist():
-            if use_final and tid == last_id and (fa is not None):
-                ab_seq.append(torch.as_tensor(fa, device=z.device, dtype=z.dtype))
-            else:
-                ab_seq.append(ab_full[int(tid)])
-        ab_seq = torch.stack(ab_seq)  # [N]
+    #     for tid in t_seq.tolist():
+    #         if use_final and tid == last_id and (fa is not None):
+    #             ab_seq.append(torch.as_tensor(fa, device=z.device, dtype=z.dtype))
+    #         else:
+    #             ab_seq.append(ab_full[int(tid)])
+    #     ab_seq = torch.stack(ab_seq)  # [N]
 
-        def _as_from_ab(ab_t: torch.Tensor):
-            ab_t = torch.clamp(ab_t, 1e-12, 1.0)
-            a = ab_t.sqrt()
-            s = torch.sqrt(torch.clamp(1.0 - ab_t, 0.0, 1.0))
-            return a, s
+    #     def _as_from_ab(ab_t: torch.Tensor):
+    #         ab_t = torch.clamp(ab_t, 1e-12, 1.0)
+    #         a = ab_t.sqrt()
+    #         s = torch.sqrt(torch.clamp(1.0 - ab_t, 0.0, 1.0))
+    #         return a, s
 
-        # FM/DDIM + ΠGDM in the same (a,s,τ) geometry as sample_chunk_flow
-        for k in range(len(t_seq)-1):
-            t = int(t_seq[k].item()); s = int(t_seq[k+1].item())
-            tau_t = float(taus[k].item()); tau_s = float(taus[k+1].item())
-            delta_eta = tau_s - tau_t  # Δη
+    #     # FM/DDIM + ΠGDM in the same (a,s,τ) geometry as sample_chunk_flow
+    #     for k in range(len(t_seq)-1):
+    #         t = int(t_seq[k].item()); s = int(t_seq[k+1].item())
+    #         tau_t = float(taus[k].item()); tau_s = float(taus[k+1].item())
+    #         delta_eta = tau_s - tau_t  # Δη
 
-            # before
-            # z_before = z.norm().item()
-            # z_before = z.clone()
+    #         # before
+    #         # z_before = z.norm().item()
+    #         # z_before = z.clone()
 
-            # (a,s) for current/next indices from ab_seq
-            a_t, s_t = _as_from_ab(ab_seq[k])
-            a_s, s_s = _as_from_ab(ab_seq[k+1])
+    #         # (a,s) for current/next indices from ab_seq
+    #         a_t, s_t = _as_from_ab(ab_seq[k])
+    #         a_s, s_s = _as_from_ab(ab_seq[k+1])
 
-            # base velocity at id t (device-safe long tensor)
-            t_b = torch.full((B,), t, dtype=torch.long, device=z.device)
-            # v_base = self.flow_adapter.velocity(z, t_b, global_cond)
+    #         # base velocity at id t (device-safe long tensor)
+    #         t_b = torch.full((B,), t, dtype=torch.long, device=z.device)
+    #         # v_base = self.flow_adapter.velocity(z, t_b, global_cond)
 
-            # ΠGDM correction at τ_t (pass the same t_b; _pinv_... expects torch.LongTensor for t_id)
-            v_corr = self._pinv_corrected_velocity(
-                z, t_b, global_cond, y_prev, weights, tau_t, max_guidance_weight
-            )
+    #         # ΠGDM correction at τ_t (pass the same t_b; _pinv_... expects torch.LongTensor for t_id)
+    #         v_corr = self._pinv_corrected_velocity(
+    #             z, t_b, global_cond, y_prev, weights, tau_t, max_guidance_weight
+    #         )
 
-            # Reparam step in ẑ with corrected velocity
-            z_tilde = z / (a_t + s_t)
-            z_tilde_corr = z_tilde + v_corr * delta_eta
-            z = (z_tilde_corr * (a_s + s_s)).detach()
+    #         # Reparam step in ẑ with corrected velocity
+    #         z_tilde = z / (a_t + s_t)
+    #         z_tilde_corr = z_tilde + v_corr * delta_eta
+    #         z = (z_tilde_corr * (a_s + s_s)).detach()
 
-            # after + guidance number (same formula as inside _pinv_corrected_velocity)
-            # z_after = z.norm().item()
-            # inv_r2 = (tau_t**2 + (1 - tau_t)**2) / ((1 - tau_t)**2 + 1e-12)
-            # c = (1 - tau_t) / (tau_t + 1e-12)
-            # guidance = min(c * inv_r2, max_guidance_weight)
-
-
-            # if getattr(self, "debug_flow", False):
-            #     v_base_mag = v_base.reshape(B, -1).norm(dim=1).mean()
-            #     v_corr_mag = v_corr.reshape(B, -1).norm(dim=1).mean()
-            #     dz_mag = (z - z_before).reshape(B, -1).norm(dim=1).mean()
-
-            #     print(
-            #         f"[RTC] step {k:02d} t={t:3d} "
-            #         f"tau={tau_t:.4f}->{tau_s:.4f} "
-            #         f"Δη={delta_eta:.4f} "
-            #         f"||v_base||={v_base_mag.item():.4f} "
-            #         f"||v_corr||={v_corr_mag.item():.4f} "
-            #         f"||Δz||={dz_mag.item():.4f}"
-            #     )
-
-            #     self._denoise_log.append({
-            #         "mode": "rtc",
-            #         "k": int(k),
-            #         "t": int(t),
-            #         "tau_t": float(tau_t),
-            #         "tau_s": float(tau_s),
-            #         "delta_eta": float(delta_eta),
-            #         "v_base_mag": float(v_base_mag.item()),
-            #         "v_corr_mag": float(v_corr_mag.item()),
-            #         "dz_mag": float(dz_mag.item()),
-            #     })
+    #         # after + guidance number (same formula as inside _pinv_corrected_velocity)
+    #         # z_after = z.norm().item()
+    #         # inv_r2 = (tau_t**2 + (1 - tau_t)**2) / ((1 - tau_t)**2 + 1e-12)
+    #         # c = (1 - tau_t) / (tau_t + 1e-12)
+    #         # guidance = min(c * inv_r2, max_guidance_weight)
 
 
-        # unnormalize back to action space
-        action_pred = self.normalizer['action'].unnormalize(z)
-        return {'action': action_pred, 'action_pred': action_pred}
+    #         # if getattr(self, "debug_flow", False):
+    #         #     v_base_mag = v_base.reshape(B, -1).norm(dim=1).mean()
+    #         #     v_corr_mag = v_corr.reshape(B, -1).norm(dim=1).mean()
+    #         #     dz_mag = (z - z_before).reshape(B, -1).norm(dim=1).mean()
+
+    #         #     print(
+    #         #         f"[RTC] step {k:02d} t={t:3d} "
+    #         #         f"tau={tau_t:.4f}->{tau_s:.4f} "
+    #         #         f"Δη={delta_eta:.4f} "
+    #         #         f"||v_base||={v_base_mag.item():.4f} "
+    #         #         f"||v_corr||={v_corr_mag.item():.4f} "
+    #         #         f"||Δz||={dz_mag.item():.4f}"
+    #         #     )
+
+    #         #     self._denoise_log.append({
+    #         #         "mode": "rtc",
+    #         #         "k": int(k),
+    #         #         "t": int(t),
+    #         #         "tau_t": float(tau_t),
+    #         #         "tau_s": float(tau_s),
+    #         #         "delta_eta": float(delta_eta),
+    #         #         "v_base_mag": float(v_base_mag.item()),
+    #         #         "v_corr_mag": float(v_corr_mag.item()),
+    #         #         "dz_mag": float(dz_mag.item()),
+    #         #     })
 
 
-    def _pinv_corrected_velocity(
-        self,
-        z_t: torch.Tensor,
-        t_id: torch.Tensor,
-        global_cond: torch.Tensor,
-        y_prev: torch.Tensor,
-        weights: torch.Tensor,
-        time: float,  # Now receives continuous time directly
-        max_guidance_weight: float
-    ) -> torch.Tensor:
-        """
-        ΠGDM-corrected velocity for RTC (Pokle et al. Eq. 2).
+    #     # unnormalize back to action space
+    #     action_pred = self.normalizer['action'].unnormalize(z)
+    #     return {'action': action_pred, 'action_pred': action_pred}
+
+
+    # def _pinv_corrected_velocity(
+    #     self,
+    #     z_t: torch.Tensor,
+    #     t_id: torch.Tensor,
+    #     global_cond: torch.Tensor,
+    #     y_prev: torch.Tensor,
+    #     weights: torch.Tensor,
+    #     time: float,  # Now receives continuous time directly
+    #     max_guidance_weight: float
+    # ) -> torch.Tensor:
+    #     """
+    #     ΠGDM-corrected velocity for RTC (Pokle et al. Eq. 2).
         
-        Args:
-            time: Continuous flow time ∈ [0, 1], where 0=noise, 1=data
-        """
-        # B, H, D = z_t.shape
+    #     Args:
+    #         time: Continuous flow time ∈ [0, 1], where 0=noise, 1=data
+    #     """
+    #     # B, H, D = z_t.shape
         
-        # Detach to prevent graph accumulation
-        global_cond_detached = global_cond.detach()
-        # z_t_copy = z_t.detach().clone().requires_grad_(True)
+    #     # Detach to prevent graph accumulation
+    #     global_cond_detached = global_cond.detach()
+    #     # z_t_copy = z_t.detach().clone().requires_grad_(True)
         
-        # Compute velocity and predicted clean action
-        with torch.enable_grad():
-        #     v_t = self.flow_adapter.velocity(z_t_copy, t_id, global_cond_detached)
-        #     # Denoising estimate: x_1 = z_t + (1-time) * v_t
-        #     # This is Â_c^1 from Pokle Eq. 3
-        #     x_1_hat = z_t_copy + (1 - time) * v_t
+    #     # Compute velocity and predicted clean action
+    #     with torch.enable_grad():
+    #     #     v_t = self.flow_adapter.velocity(z_t_copy, t_id, global_cond_detached)
+    #     #     # Denoising estimate: x_1 = z_t + (1-time) * v_t
+    #     #     # This is Â_c^1 from Pokle Eq. 3
+    #     #     x_1_hat = z_t_copy + (1 - time) * v_t
         
-        # # Weighted error against previous chunk
-        # error = (y_prev - x_1_hat) * weights[None, :, None]  # [B, H, D]
+    #     # # Weighted error against previous chunk
+    #     # error = (y_prev - x_1_hat) * weights[None, :, None]  # [B, H, D]
         
-        # # Compute gradient via backprop
-        # if z_t_copy.grad is not None:
-        #     z_t_copy.grad.zero_()
+    #     # # Compute gradient via backprop
+    #     # if z_t_copy.grad is not None:
+    #     #     z_t_copy.grad.zero_()
         
-        # x_1_hat.backward(error)
-        # pinv_correction = z_t_copy.grad.detach().clone()
+    #     # x_1_hat.backward(error)
+    #     # pinv_correction = z_t_copy.grad.detach().clone()
 
-            z_t_copy = z_t.detach().clone().requires_grad_(True)
-            v_t = self.flow_adapter.velocity(z_t_copy, t_id, global_cond_detached)
-            x_1_hat = z_t_copy + (1 - time) * v_t
+    #         z_t_copy = z_t.detach().clone().requires_grad_(True)
+    #         v_t = self.flow_adapter.velocity(z_t_copy, t_id, global_cond_detached)
+    #         x_1_hat = z_t_copy + (1 - time) * v_t
 
-            error = (y_prev - x_1_hat) * weights[None, :, None]
+    #         error = (y_prev - x_1_hat) * weights[None, :, None]
 
-            (pinv_correction,) = torch.autograd.grad(
-                outputs=x_1_hat,
-                inputs=z_t_copy,
-                grad_outputs=error,
-                retain_graph=False,
-                create_graph=False
-            )
+    #         (pinv_correction,) = torch.autograd.grad(
+    #             outputs=x_1_hat,
+    #             inputs=z_t_copy,
+    #             grad_outputs=error,
+    #             retain_graph=False,
+    #             create_graph=False
+    #         )
 
-        pinv_correction = pinv_correction.detach()
+    #     pinv_correction = pinv_correction.detach()
         
-        # Guidance weight (Pokle Eq. 2 and Eq. 4)
-        inv_r2 = (time**2 + (1 - time)**2) / ((1 - time)**2)
-        c = (1 - time) / (time)
-        gw_raw = c * inv_r2
-        guidance_weight = min(gw_raw, max_guidance_weight)
+    #     # Guidance weight (Pokle Eq. 2 and Eq. 4)
+    #     inv_r2 = (time**2 + (1 - time)**2) / ((1 - time)**2)
+    #     c = (1 - time) / (time)
+    #     gw_raw = c * inv_r2
+    #     guidance_weight = min(gw_raw, max_guidance_weight)
 
-        # eps = 1e-12
-        # r2 = time**2 + (1 - time)**2
-        # gw_raw = (1 - time) / ((time + eps) * (r2 + eps))
-        # guidance_weight = min(gw_raw, max_guidance_weight)
-        # print(f"[RTC-guidance] tau={time:.3f}, gw_raw={gw_raw:.3f}, gw_clipped={guidance_weight:.3f}")
+    #     # eps = 1e-12
+    #     # r2 = time**2 + (1 - time)**2
+    #     # gw_raw = (1 - time) / ((time + eps) * (r2 + eps))
+    #     # guidance_weight = min(gw_raw, max_guidance_weight)
+    #     # print(f"[RTC-guidance] tau={time:.3f}, gw_raw={gw_raw:.3f}, gw_clipped={guidance_weight:.3f}")
 
-        if getattr(self, "debug_rtc", False):
-            if not hasattr(self, "_rtc_guidance_log"):
-                self._rtc_guidance_log = []
-            self._rtc_guidance_log.append(
-                (float(time), float(gw_raw), float(guidance_weight))
-            )
+    #     if getattr(self, "debug_rtc", False):
+    #         if not hasattr(self, "_rtc_guidance_log"):
+    #             self._rtc_guidance_log = []
+    #         self._rtc_guidance_log.append(
+    #             (float(time), float(gw_raw), float(guidance_weight))
+    #         )
 
-        # Return corrected velocity
-        return v_t.detach() + guidance_weight * pinv_correction
+    #     # Return corrected velocity
+    #     return v_t.detach() + guidance_weight * pinv_correction
     
-    def _get_prefix_weights(
-        self,
-        start: int,
-        end: int,
-        total: int,
-        schedule: str
-    ) -> torch.Tensor:
-        """Soft masking weights (Eq. 5 from paper)."""
-        start = min(start, end)
-        indices = torch.arange(total, dtype=torch.float32, device=self.device)
+    # def _get_prefix_weights(
+    #     self,
+    #     start: int,
+    #     end: int,
+    #     total: int,
+    #     schedule: str
+    # ) -> torch.Tensor:
+    #     """Soft masking weights (Eq. 5 from paper)."""
+    #     start = min(start, end)
+    #     indices = torch.arange(total, dtype=torch.float32, device=self.device)
         
-        if schedule == "ones":
-            w = torch.ones(total, device=self.device)
-        elif schedule == "zeros":
-            w = (indices < start).float()
-        elif schedule == "linear" or schedule == "exp":
-            w = torch.clamp((start - 1 - indices) / (end - start + 1) + 1, 0, 1)
-            if schedule == "exp":
-                # Exponential shaping: w * (e^w - 1) / (e - 1)
-                w = w * (torch.exp(w) - 1) / (np.e - 1)
-                # very gentle exponential shaping
-                # w = w * (torch.exp(0.5 * w) - 1.0) / (np.e**0.5 - 1.0)
-        else:
-            raise ValueError(f"Invalid schedule: {schedule}")
+    #     if schedule == "ones":
+    #         w = torch.ones(total, device=self.device)
+    #     elif schedule == "zeros":
+    #         w = (indices < start).float()
+    #     elif schedule == "linear" or schedule == "exp":
+    #         w = torch.clamp((start - 1 - indices) / (end - start + 1) + 1, 0, 1)
+    #         if schedule == "exp":
+    #             # Exponential shaping: w * (e^w - 1) / (e - 1)
+    #             w = w * (torch.exp(w) - 1) / (np.e - 1)
+    #             # very gentle exponential shaping
+    #             # w = w * (torch.exp(0.5 * w) - 1.0) / (np.e**0.5 - 1.0)
+    #     else:
+    #         raise ValueError(f"Invalid schedule: {schedule}")
         
-        # Zero out everything past 'end'
-        w = torch.where(indices >= end, torch.zeros_like(w), w)
+    #     # Zero out everything past 'end'
+    #     w = torch.where(indices >= end, torch.zeros_like(w), w)
 
-        if getattr(self, "debug_rtc", False):
-            if not hasattr(self, "_rtc_W_log"):
-                self._rtc_W_log = []
-            self._rtc_W_log.append(w.detach().cpu().numpy())
-        return w
+    #     if getattr(self, "debug_rtc", False):
+    #         if not hasattr(self, "_rtc_W_log"):
+    #             self._rtc_W_log = []
+    #         self._rtc_W_log.append(w.detach().cpu().numpy())
+    #     return w
     
     def forward(self, batch):
         return self.compute_loss(batch)
