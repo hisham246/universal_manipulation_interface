@@ -122,16 +122,57 @@ def main(input, output, out_res, out_fov, compression_level,
                 episode_data[robot_name + '_demo_end_pose'] = demo_end_pose
             
             episode_data['timestamp'] = plan_episode['episode_timestamps'].astype(np.float64)
+
+            # 1) Find the earliest index where any gripper exceeds the threshold
+            truncation_idx = -1
+            found_trigger = False
+            # Get current full length (assuming all keys have same length)
+            current_len = len(episode_data['timestamp'])
+            min_cutoff = current_len
+
+            # Check every robot's gripper
+            for key, val in episode_data.items():
+                if 'gripper_width' in key:
+                    # Flatten to 1D array
+                    w = val.flatten()
+                    # Find indices where width is >= 0.01
+                    trigger_indices = np.where(w >= 0.01)[0]
+                    
+                    if len(trigger_indices) > 0:
+                        first_idx = trigger_indices[0]
+                        if first_idx < min_cutoff:
+                            min_cutoff = first_idx
+                            found_trigger = True
+            
+            # 2) Slice the data if a trigger was found
+            if found_trigger:
+                # If the gripper opens at frame 0, skip the episode entirely
+                if min_cutoff == 0:
+                    continue 
+
+                # Slice all arrays in episode_data up to min_cutoff
+                # Note: Using [:min_cutoff] excludes the frame where it became 0.01
+                # If you want to include that frame, use [:min_cutoff + 1]
+                for k in episode_data:
+                    episode_data[k] = episode_data[k][:min_cutoff]
+
+
             out_replay_buffer.add_episode(data=episode_data, compressors=None)
             
             # aggregate video gen aguments
             n_frames = None
+            episode_len = len(episode_data['timestamp'])
             for cam_id, camera in enumerate(cameras):
                 video_path_rel = camera['video_path']
                 video_path = demos_path.joinpath(video_path_rel).absolute()
                 assert video_path.is_file()
                 
-                video_start, video_end = camera['video_start_end']
+                # video_start, video_end = camera['video_start_end']
+                video_start, _ = camera['video_start_end'] # Ignore original video_end
+                
+                # Recalculate end based on the sliced data length
+                video_end = video_start + episode_len
+
                 if n_frames is None:
                     n_frames = video_end - video_start
                 else:
