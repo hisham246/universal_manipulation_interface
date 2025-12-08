@@ -46,8 +46,8 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 @click.command()
 @click.option('--output', '-o', required=True, help='Directory to save recording')
 @click.option('--robot_ip', default='129.97.71.27')
-@click.option('--gripper_ip', default='129.97.71.27')
-@click.option('--gripper_port', type=int, default=4242)
+# @click.option('--gripper_ip', default='129.97.71.27')
+# @click.option('--gripper_port', type=int, default=4242)
 @click.option('--match_dataset', '-m', default=None, help='Dataset used to overlay and adjust initial condition')
 @click.option('--match_camera', '-mc', default=0, type=int)
 @click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
@@ -60,14 +60,15 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 @click.option('--mirror_crop', is_flag=True, default=False)
 @click.option('--mirror_swap', is_flag=True, default=False)
 
-def main(output, robot_ip, gripper_ip, gripper_port,
+def main(output, robot_ip, 
+        #  gripper_ip, gripper_port,
     match_dataset, match_camera, vis_camera_idx, steps_per_inference, 
     max_duration, frequency, no_mirror, sim_fov, camera_intrinsics, 
     mirror_crop, mirror_swap):
 
     # Diffusion UNet
-    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/reaching_ball_multimodal_16.ckpt'
-    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/surface_wiping_unet_position_control.ckpt'
+    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/reaching_ball_multimodal_16.ckpt'
+    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/peg_in_hole_position_control.ckpt'
 
     payload = torch.load(open(ckpt_path, 'rb'), map_location='cpu', pickle_module=dill)
     cfg = payload['cfg']
@@ -94,21 +95,21 @@ def main(output, robot_ip, gripper_ip, gripper_port,
             VicUmiEnv(
                 output_dir=output, 
                 robot_ip=robot_ip,
-                gripper_ip=gripper_ip,
-                gripper_port=gripper_port,
+                # gripper_ip=gripper_ip,
+                # gripper_port=gripper_port,
                 frequency=frequency,
                 obs_image_resolution=obs_res,
                 obs_float32=True,
                 camera_reorder=None,
                 camera_obs_latency=0.0,
                 robot_obs_latency=0.0,
-                gripper_obs_latency=0.0,
+                # gripper_obs_latency=0.0,
                 robot_action_latency=0.0,
-                gripper_action_latency=0.0,
+                # gripper_action_latency=0.0,
                 # obs
                 camera_obs_horizon=cfg.task.shape_meta.obs.camera0_rgb.horizon,
                 robot_obs_horizon=cfg.task.shape_meta.obs.robot0_eef_pos.horizon,
-                gripper_obs_horizon=cfg.task.shape_meta.obs.robot0_gripper_width.horizon,
+                # gripper_obs_horizon=cfg.task.shape_meta.obs.robot0_gripper_width.horizon,
                 no_mirror=no_mirror,
                 fisheye_converter=fisheye_converter,
                 mirror_crop=mirror_crop,
