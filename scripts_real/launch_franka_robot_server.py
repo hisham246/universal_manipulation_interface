@@ -7,6 +7,7 @@ import torch
 class FrankaInterface:
     def __init__(self):
         self.robot = RobotInterface('localhost')
+        
     # Robot methods
     def get_robot_state(self):
         data = self.robot.get_robot_state()

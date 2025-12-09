@@ -50,7 +50,7 @@ class VicUmiEnv:
             # all in seconds
             camera_obs_latency=0.125,
             robot_obs_latency=0.0001,
-            gripper_obs_latency=0.01,
+            # gripper_obs_latency=0.01,
             robot_action_latency=0.1,
             # gripper_action_latency=0.1,
             # all in steps (relative to frequency)
@@ -242,7 +242,7 @@ class VicUmiEnv:
         self.align_camera_idx = align_camera_idx
         self.camera_obs_latency = camera_obs_latency
         self.robot_obs_latency = robot_obs_latency
-        self.gripper_obs_latency = gripper_obs_latency
+        # self.gripper_obs_latency = gripper_obs_latency
         self.robot_action_latency = robot_action_latency
         # self.gripper_action_latency = gripper_action_latency
         self.camera_down_sample_steps = camera_down_sample_steps
@@ -265,7 +265,8 @@ class VicUmiEnv:
     # ======== start-stop API =============
     @property
     def is_ready(self):
-        return self.camera.is_ready and self.robot.is_ready and self.gripper.is_ready
+        # return self.camera.is_ready and self.robot.is_ready and self.gripper.is_ready
+        return self.camera.is_ready and self.robot.is_ready
     
     def start(self, wait=True):
         self.camera.start(wait=False)
@@ -327,7 +328,7 @@ class VicUmiEnv:
         # both have more than n_obs_steps data
 
         # 30 hz, gripper_receive_timestamp
-        last_gripper_data = self.gripper.get_all_state()
+        # last_gripper_data = self.gripper.get_all_state()
         last_timestamp = self.last_camera_data[0]['timestamp'][-1]
         dt = 1 / self.frequency
 
@@ -384,12 +385,12 @@ class VicUmiEnv:
                 },
                 timestamps=last_robot_data['robot_timestamp']
             )
-            self.obs_accumulator.put(
-                data={
-                    'robot0_gripper_width': np.array(last_gripper_data['gripper_position'])[..., None]
-                },
-                timestamps=last_gripper_data['gripper_timestamp']
-            )
+            # self.obs_accumulator.put(
+            #     data={
+            #         'robot0_gripper_width': np.array(last_gripper_data['gripper_position'])[..., None]
+            #     },
+            #     timestamps=last_gripper_data['gripper_timestamp']
+            # )
 
         # return obs
         obs_data = dict(camera_obs)

@@ -52,7 +52,7 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 @click.option('--match_camera', '-mc', default=0, type=int)
 @click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
 @click.option('--steps_per_inference', '-si', default=5, type=int, help="Action horizon for inference.")
-@click.option('--max_duration', '-md', default=120, help='Max duration for each epoch in seconds.')
+@click.option('--max_duration', '-md', default=360, help='Max duration for each epoch in seconds.')
 @click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
 @click.option('-nm', '--no_mirror', is_flag=True, default=False)
 @click.option('-sf', '--sim_fov', type=float, default=None)
@@ -60,9 +60,7 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 @click.option('--mirror_crop', is_flag=True, default=False)
 @click.option('--mirror_swap', is_flag=True, default=False)
 
-def main(output, robot_ip, 
-        #  gripper_ip, gripper_port,
-    match_dataset, match_camera, vis_camera_idx, steps_per_inference, 
+def main(output, robot_ip, match_dataset, match_camera, vis_camera_idx, steps_per_inference, 
     max_duration, frequency, no_mirror, sim_fov, camera_intrinsics, 
     mirror_crop, mirror_swap):
 
@@ -179,6 +177,7 @@ def main(output, robot_ip,
 
             # Grab one observation and build obs_dict just like in the main loop
             obs = env.get_obs()
+
             episode_start_pose = np.concatenate([
                     obs[f'robot0_eef_pos'],
                     obs[f'robot0_eef_rot_axis_angle']
@@ -192,6 +191,7 @@ def main(output, robot_ip,
                     obs_pose_repr=obs_pose_rep,
                     episode_start_pose=episode_start_pose
                 )
+
                 obs_dict = dict_apply(
                     obs_dict_np,
                     lambda x: torch.from_numpy(x).unsqueeze(0).to(device)
@@ -243,7 +243,7 @@ def main(output, robot_ip,
                             obs[f'robot0_eef_rot_axis_angle']
                         ], axis=-1)[-1]
                         obs_timestamps = obs['timestamp']
-                        # print(f'Obs latency {time.time() - obs_timestamps[-1]}')
+                        print(f'Obs latency {time.time() - obs_timestamps[-1]}')
 
                         # run inference
                         # ====== Algorithm 1 / eval_flow-style RTC ======
@@ -290,7 +290,7 @@ def main(output, robot_ip,
                                 max_guidance_weight=rtc_max_guidance,
                                 n_steps=policy.num_inference_steps
                             )
-                            # print(f"[RTC] Generated chunk {chunk_generation_count} with d={d_forecast}, s={s_horizon}, H={H}, prefix_h={prefix_attn_h}"))
+                            print(f"[RTC] Generated chunk {chunk_generation_count} with d={d_forecast}, s={s_horizon}, H={H}, prefix_h={prefix_attn_h}")
 
                             curr_raw_chunk = result['action_pred'][0].detach().cpu().numpy()
 
@@ -299,7 +299,7 @@ def main(output, robot_ip,
                             delay_steps = int(np.ceil(inference_time / dt))
                             delay_steps = max(delay_steps, 0)
                             delay_buf.append(delay_steps)
-                            # print(f"Inference took {inference_time*1000:.1f}ms -> delay ~ {delay_steps} steps")
+                            print(f"Inference took {inference_time*1000:.1f}ms -> delay ~ {delay_steps} steps")
 
                             # 3) Convert BOTH prev and current chunks to real robot actions for mixing
                             prev_action_world = get_real_umi_action(prev_raw_chunk, obs, action_pose_repr)
