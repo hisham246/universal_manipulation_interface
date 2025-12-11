@@ -8,7 +8,7 @@ from multiprocessing.managers import SharedMemoryManager
 # from umi.real_world.franka_variable_impedance_controller import FrankaVariableImpedanceController
 from umi.real_world.franka_interpolation_controller import FrankaInterpolationController
 
-# from umi.real_world.franka_hand_controller import FrankaHandController
+from umi.real_world.franka_hand_controller import FrankaHandController
 from umi.real_world.multi_uvc_camera import MultiUvcCamera, VideoRecorder
 from diffusion_policy.common.timestamp_accumulator import (
     TimestampActionAccumulator,
@@ -30,8 +30,8 @@ class VicUmiEnv:
             # required params
             output_dir,
             robot_ip,
-            # gripper_ip,
-            # gripper_port=4242,
+            gripper_ip,
+            gripper_port=4242,
             # env params
             frequency=10,
             # obs
@@ -50,17 +50,17 @@ class VicUmiEnv:
             # all in seconds
             camera_obs_latency=0.125,
             robot_obs_latency=0.0001,
-            # gripper_obs_latency=0.01,
+            gripper_obs_latency=0.01,
             robot_action_latency=0.1,
-            # gripper_action_latency=0.1,
+            gripper_action_latency=0.1,
             # all in steps (relative to frequency)
             camera_down_sample_steps=1,
             robot_down_sample_steps=1,
-            # gripper_down_sample_steps=1,
+            gripper_down_sample_steps=1,
             # all in steps (relative to frequency)
             camera_obs_horizon=2,
             robot_obs_horizon=2,
-            # gripper_obs_horizon=2,
+            gripper_obs_horizon=2,
             # action
             max_pos_speed=1.5,
             max_rot_speed=1.5,
@@ -222,17 +222,17 @@ class VicUmiEnv:
             episode_id=self.episode_id_counter,
         )
         
-        # gripper = FrankaHandController(
-        #     host=gripper_ip,
-        #     port=gripper_port,
-        #     speed=0.05,
-        #     force=20.0,
-        #     update_rate=frequency
-        # )
+        gripper = FrankaHandController(
+            host=gripper_ip,
+            port=gripper_port,
+            speed=0.05,
+            force=20.0,
+            update_rate=frequency
+        )
 
         self.camera = camera
         self.robot = robot
-        # self.gripper = gripper
+        self.gripper = gripper
         self.frequency = frequency
         self.max_obs_buffer_size = max_obs_buffer_size
         self.max_pos_speed = max_pos_speed
@@ -242,15 +242,15 @@ class VicUmiEnv:
         self.align_camera_idx = align_camera_idx
         self.camera_obs_latency = camera_obs_latency
         self.robot_obs_latency = robot_obs_latency
-        # self.gripper_obs_latency = gripper_obs_latency
+        self.gripper_obs_latency = gripper_obs_latency
         self.robot_action_latency = robot_action_latency
-        # self.gripper_action_latency = gripper_action_latency
+        self.gripper_action_latency = gripper_action_latency
         self.camera_down_sample_steps = camera_down_sample_steps
         self.robot_down_sample_steps = robot_down_sample_steps
-        # self.gripper_down_sample_steps = gripper_down_sample_steps
+        self.gripper_down_sample_steps = gripper_down_sample_steps
         self.camera_obs_horizon = camera_obs_horizon
         self.robot_obs_horizon = robot_obs_horizon
-        # self.gripper_obs_horizon = gripper_obs_horizon
+        self.gripper_obs_horizon = gripper_obs_horizon
         # recording
         self.output_dir = output_dir
         self.video_dir = video_dir
@@ -265,12 +265,12 @@ class VicUmiEnv:
     # ======== start-stop API =============
     @property
     def is_ready(self):
-        # return self.camera.is_ready and self.robot.is_ready and self.gripper.is_ready
-        return self.camera.is_ready and self.robot.is_ready
+        return self.camera.is_ready and self.robot.is_ready and self.gripper.is_ready
+        # return self.camera.is_ready and self.robot.is_ready
     
     def start(self, wait=True):
         self.camera.start(wait=False)
-        # self.gripper.start(wait=False)
+        self.gripper.start(wait=False)
         self.robot.start(wait=False)
         if wait:
             self.start_wait()
@@ -278,19 +278,19 @@ class VicUmiEnv:
     def stop(self, wait=True):
         self.end_episode()
         self.robot.stop(wait=False)
-        # self.gripper.stop(wait=False)
+        self.gripper.stop(wait=False)
         self.camera.stop(wait=False)
         if wait:
             self.stop_wait()
 
     def start_wait(self):
         self.camera.start_wait()
-        # self.gripper.start_wait()
+        self.gripper.start_wait()
         self.robot.start_wait()
     
     def stop_wait(self):
         self.robot.stop_wait()
-        # self.gripper.stop_wait()
+        self.gripper.stop_wait()
         self.camera.stop_wait()
 
     # ========= context manager ===========
@@ -328,7 +328,7 @@ class VicUmiEnv:
         # both have more than n_obs_steps data
 
         # 30 hz, gripper_receive_timestamp
-        # last_gripper_data = self.gripper.get_all_state()
+        last_gripper_data = self.gripper.get_all_state()
         last_timestamp = self.last_camera_data[0]['timestamp'][-1]
         dt = 1 / self.frequency
 
@@ -370,10 +370,10 @@ class VicUmiEnv:
         #     x=np.array(last_gripper_data['gripper_position'])[..., None]
         # )
 
-        # x = np.array(last_gripper_data['gripper_position'])[-1]
-        # gripper_obs = {
-        #     'robot0_gripper_width': np.repeat([[x]], self.gripper_obs_horizon, axis=0)
-        # }
+        x = np.array(last_gripper_data['gripper_position'])[-1]
+        gripper_obs = {
+            'robot0_gripper_width': np.repeat([[x]], self.gripper_obs_horizon, axis=0)
+        }
 
         # accumulate obs
         if self.obs_accumulator is not None:
@@ -385,17 +385,17 @@ class VicUmiEnv:
                 },
                 timestamps=last_robot_data['robot_timestamp']
             )
-            # self.obs_accumulator.put(
-            #     data={
-            #         'robot0_gripper_width': np.array(last_gripper_data['gripper_position'])[..., None]
-            #     },
-            #     timestamps=last_gripper_data['gripper_timestamp']
-            # )
+            self.obs_accumulator.put(
+                data={
+                    'robot0_gripper_width': np.array(last_gripper_data['gripper_position'])[..., None]
+                },
+                timestamps=last_gripper_data['gripper_timestamp']
+            )
 
         # return obs
         obs_data = dict(camera_obs)
         obs_data.update(robot_obs)
-        # obs_data.update(gripper_obs)
+        obs_data.update(gripper_obs)
         obs_data['timestamp'] = camera_obs_timestamps
 
         return obs_data
@@ -427,7 +427,7 @@ class VicUmiEnv:
     #     for i in range(len(new_actions)):
     #         r_actions = new_actions[i,:6]
     #         # g_actions = new_actions[i, 9:]
-    #         # g_actions = new_actions[i, 6:]
+    #         g_actions = new_actions[i, 6:]
 
     #         # Kx_trans = new_actions[i, 6:9]
     #         # Kx = np.concatenate([Kx_trans, Kx_rot])
@@ -442,8 +442,8 @@ class VicUmiEnv:
     #             pose=r_actions,
     #             target_time=new_timestamps[i]-r_latency
     #         )
-    #         # self.gripper.schedule_waypoint(
-    #         #     pos=g_actions)
+    #         self.gripper.schedule_waypoint(
+    #             pos=g_actions)
 
     #     # record actions
     #     if self.action_accumulator is not None:
@@ -475,7 +475,7 @@ class VicUmiEnv:
         # Schedule waypoints exactly as requested – NO time filtering here.
         for i in range(len(actions)):
             r_actions = actions[i, :6]
-            # g_actions = actions[i, 9:]  # if you re-enable gripper later
+            g_actions = actions[i, 9:]  # if you re-enable gripper later
 
             self.robot.schedule_waypoint(
                 pose=r_actions,
@@ -575,18 +575,18 @@ class VicUmiEnv:
                 episode['robot0_joint_pos'] = joint_pos_interpolator(timestamps)
                 episode['robot0_joint_vel'] = joint_vel_interpolator(timestamps)
 
-                # gripper_ts = np.array(self.obs_accumulator.timestamps['robot0_gripper_width'])
-                # gripper_data = np.array(self.obs_accumulator.data['robot0_gripper_width'])
+                gripper_ts = np.array(self.obs_accumulator.timestamps['robot0_gripper_width'])
+                gripper_data = np.array(self.obs_accumulator.data['robot0_gripper_width'])
 
-                # if len(gripper_data) == 0 or len(gripper_ts) == 0:
-                #     print("[Warning] No gripper data collected.")
-                #     episode['robot0_gripper_width'] = np.zeros((len(timestamps), 1))
-                # elif len(np.unique(gripper_ts)) < 2:
-                #     print("[Warning] Not enough unique gripper timestamps to interpolate. Repeating last value.")
-                #     episode['robot0_gripper_width'] = np.repeat(gripper_data[-1:], len(timestamps), axis=0)
-                # else:
-                #     gripper_interpolator = get_interp1d(t=gripper_ts, x=gripper_data)
-                #     episode['robot0_gripper_width'] = gripper_interpolator(timestamps)
+                if len(gripper_data) == 0 or len(gripper_ts) == 0:
+                    print("[Warning] No gripper data collected.")
+                    episode['robot0_gripper_width'] = np.zeros((len(timestamps), 1))
+                elif len(np.unique(gripper_ts)) < 2:
+                    print("[Warning] Not enough unique gripper timestamps to interpolate. Repeating last value.")
+                    episode['robot0_gripper_width'] = np.repeat(gripper_data[-1:], len(timestamps), axis=0)
+                else:
+                    gripper_interpolator = get_interp1d(t=gripper_ts, x=gripper_data)
+                    episode['robot0_gripper_width'] = gripper_interpolator(timestamps)
 
                 self.replay_buffer.add_episode(episode, compressors='disk')
                 episode_id = self.replay_buffer.n_episodes - 1

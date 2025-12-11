@@ -69,8 +69,8 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 # @click.option('--input', '-i', required=True, help='Path to checkpoint')
 @click.option('--output', '-o', required=True, help='Directory to save recording')
 @click.option('--robot_ip', default='129.97.71.27')
-@click.option('--gripper_ip', default='129.97.71.27')
-@click.option('--gripper_port', type=int, default=4242)
+# @click.option('--gripper_ip', default='129.97.71.27')
+# @click.option('--gripper_port', type=int, default=4242)
 # @click.option('--gripper_speed', type=float, default=0.05)
 # @click.option('--gripper_force', type=float, default=20.0)
 @click.option('--match_dataset', '-m', default=None, help='Dataset used to overlay and adjust initial condition')
@@ -79,7 +79,7 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 # @click.option('--camera_reorder', '-cr', default='021')
 @click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
 # @click.option('--init_joints', '-j', is_flag=True, default=False, help="Whether to initialize robot joint configuration in the beginning.")
-@click.option('--steps_per_inference', '-si', default= 8, type=int, help="Action horizon for inference.")
+@click.option('--steps_per_inference', '-si', default= 16, type=int, help="Action horizon for inference.")
 @click.option('--max_duration', '-md', default=60, help='Max duration for each epoch in seconds.')
 @click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
 # @click.option('--command_latency', '-cl', default=0.01, type=float, help="Latency between receiving SapceMouse command to executing on Robot in Sec.")
@@ -91,7 +91,8 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 @click.option('--mirror_swap', is_flag=True, default=False)
 # @click.option('--temporal_ensembling', is_flag=True, default=False, help='Enable temporal ensembling for inference.')
 
-def main(output, robot_ip, gripper_ip, gripper_port,
+def main(output, robot_ip, 
+        #  gripper_ip, gripper_port,
     match_dataset, match_camera,
     vis_camera_idx, steps_per_inference, max_duration,
     frequency, no_mirror, sim_fov, camera_intrinsics, 
@@ -102,7 +103,8 @@ def main(output, robot_ip, gripper_ip, gripper_port,
 
     # Diffusion UNet
     # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/diffusion_unet_pickplace_2.ckpt'
-    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/reaching_ball_multimodal.ckpt'
+    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/reaching_ball_multimodal.ckpt'
+    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/peg_in_hole_position_control.ckpt'
 
 
     # Compliance policy unet
@@ -134,8 +136,8 @@ def main(output, robot_ip, gripper_ip, gripper_port,
             VicUmiEnv(
                 output_dir=output, 
                 robot_ip=robot_ip,
-                gripper_ip=gripper_ip,
-                gripper_port=gripper_port,
+                # gripper_ip=gripper_ip,
+                # gripper_port=gripper_port,
                 frequency=frequency,
                 obs_image_resolution=obs_res,
                 obs_float32=True,
@@ -145,9 +147,9 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                 # latency
                 camera_obs_latency=0.145,
                 robot_obs_latency=0.0001,
-                gripper_obs_latency=0.01,
+                # gripper_obs_latency=0.01,
                 robot_action_latency=0.2,
-                gripper_action_latency=0.1,
+                # gripper_action_latency=0.1,
                 # camera_obs_latency=0.0,
                 # robot_obs_latency=0.0,
                 # gripper_obs_latency=0.0,
@@ -156,7 +158,7 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                 # obs
                 camera_obs_horizon=cfg.task.shape_meta.obs.camera0_rgb.horizon,
                 robot_obs_horizon=cfg.task.shape_meta.obs.robot0_eef_pos.horizon,
-                gripper_obs_horizon=cfg.task.shape_meta.obs.robot0_gripper_width.horizon,
+                # gripper_obs_horizon=cfg.task.shape_meta.obs.robot0_gripper_width.horizon,
                 no_mirror=no_mirror,
                 fisheye_converter=fisheye_converter,
                 mirror_crop=mirror_crop,
@@ -229,10 +231,10 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                 result = policy.predict_action(obs_dict)
                 action = result['action_pred'][0].detach().to('cpu').numpy()
                 # assert action.shape[-1] == 16
-                assert action.shape[-1] == 10
+                assert action.shape[-1] == 9
                 action = get_real_umi_action(action, obs, action_pose_repr)
                 # assert action.shape[-1] == 10
-                assert action.shape[-1] == 7
+                assert action.shape[-1] == 6
                 del result
 
             print('Ready!')
@@ -255,7 +257,7 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                     print("Started!")
                     iter_idx = 0
                     # last_action_end_time = time.time()
-                    action_log = []
+                    # action_log = []
                     while True:
                         # calculate timing
                         t_cycle_end = t_start + (iter_idx + steps_per_inference) * dt
@@ -363,7 +365,7 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                             break
 
                         # wait for execution
-                        # precise_wait(t_cycle_end - frame_latency)
+                        precise_wait(t_cycle_end - frame_latency)
 
                         iter_idx += steps_per_inference
 
