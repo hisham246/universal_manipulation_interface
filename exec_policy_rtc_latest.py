@@ -218,6 +218,7 @@ def main(output, robot_ip, gripper_ip, gripper_port,
                     chunk_generation_count = 0
                     start_delay = 1.0
                     eval_t_start = time.time() + start_delay
+
                     t_start = time.monotonic() + start_delay
                     env.start_episode(eval_t_start)
 
@@ -322,28 +323,33 @@ def main(output, robot_ip, gripper_ip, gripper_port,
 
                         # ====== END RTC BLOCK ======
 
+                        # if actions_to_execute > 0:
+                        #     # Schedule these actions after the current logical queue end
+                        #     action_timestamps = next_action_time + (
+                        #         (np.arange(actions_to_execute, dtype=np.float64) + 1) * dt
+                        #     )
+                        #     # execute actions
+                        #     env.exec_actions(
+                        #         actions=this_target_poses,
+                        #         timestamps=action_timestamps,
+                        #         compensate_latency=True
+                        #     )
+                        #     # print(f"Submitted {len(this_target_poses)} steps of actions.")
+
+                        #     # Advance the logical queue end to the last scheduled time
+                        #     next_action_time = action_timestamps[-1]
                         if actions_to_execute > 0:
-                            # Schedule these actions after the current logical queue end
-                            action_timestamps = next_action_time + (
+                            send_time = time.time()
+                            action_timestamps = send_time + (
                                 (np.arange(actions_to_execute, dtype=np.float64) + 1) * dt
                             )
-                            # 5) Timestamps for the next s steps
-                            # action_timestamps = (
-                            #     np.arange(actions_to_execute, dtype=np.float64) * dt + obs_timestamps[-1]
-                            # )
-                            # execute actions
+
                             env.exec_actions(
                                 actions=this_target_poses,
                                 timestamps=action_timestamps,
                                 compensate_latency=True
                             )
-                            # print(f"Submitted {len(this_target_poses)} steps of actions.")
-
-                            # Advance the logical queue end to the last scheduled time
-                            next_action_time = action_timestamps[-1]
-                        
                         else:
-                            # Nothing to send this iteration (very high delay or other issue)
                             print(f"[RTC] real_delay={real_delay}, s={s_horizon}, no new actions scheduled this loop.")
 
                         # 6) Shift by s_horizon (the committed window), NOT by actions_to_execute.

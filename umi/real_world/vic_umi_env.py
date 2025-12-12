@@ -400,95 +400,95 @@ class VicUmiEnv:
 
         return obs_data
     
-    # def exec_actions(self, 
-    #         actions: np.ndarray, 
-    #         timestamps: np.ndarray,
-    #         compensate_latency=False):
-    #     assert self.is_ready
-    #     if not isinstance(actions, np.ndarray):
-    #         actions = np.array(actions)
-    #     if not isinstance(timestamps, np.ndarray):
-    #         timestamps = np.array(timestamps)
-
-    #     # convert action to pose
-    #     receive_time = time.time()
-    #     is_new = timestamps > receive_time
-    #     print("Is new", is_new)
-    #     new_actions = actions[is_new]
-    #     new_timestamps = timestamps[is_new]
-
-    #     r_latency = self.robot_action_latency if compensate_latency else 0.0
-    #     # g_latency = self.gripper_action_latency if compensate_latency else 0.0
-
-    #     # Kx_trans = np.array([1000.0, 1000.0, 1000.0])
-    #     # Kx_rot = np.array([30.0, 30.0, 30.0])
-
-    #     # schedule waypoints
-    #     for i in range(len(new_actions)):
-    #         r_actions = new_actions[i,:6]
-    #         # g_actions = new_actions[i, 9:]
-    #         g_actions = new_actions[i, 6:]
-
-    #         # Kx_trans = new_actions[i, 6:9]
-    #         # Kx = np.concatenate([Kx_trans, Kx_rot])
-            
-    #         # Damping gains
-    #         # Kxd = 2 * 0.707 * np.sqrt(Kx)
-
-    #         # Update the impedance gains with Kx and Kxd
-    #         # self.robot.set_impedance(Kx, Kxd)
-
-    #         self.robot.schedule_waypoint(
-    #             pose=r_actions,
-    #             target_time=new_timestamps[i]-r_latency
-    #         )
-    #         self.gripper.schedule_waypoint(
-    #             pos=g_actions)
-
-    #     # record actions
-    #     if self.action_accumulator is not None:
-    #         self.action_accumulator.put(
-    #             new_actions,
-    #             new_timestamps
-    #         )
-
     def exec_actions(self, 
-        actions: np.ndarray, 
-        timestamps: np.ndarray,
-        compensate_latency=False):
-        
+            actions: np.ndarray, 
+            timestamps: np.ndarray,
+            compensate_latency=False):
         assert self.is_ready
-
-        # Ensure numpy arrays
         if not isinstance(actions, np.ndarray):
             actions = np.array(actions)
         if not isinstance(timestamps, np.ndarray):
             timestamps = np.array(timestamps)
 
-        # Basic shape check
-        assert actions.shape[0] == timestamps.shape[0], \
-            f"actions ({actions.shape[0]}) and timestamps ({timestamps.shape[0]}) must have same length"
+        # convert action to pose
+        receive_time = time.time()
+        is_new = timestamps > receive_time
+        print("Is new", is_new)
+        new_actions = actions[is_new]
+        new_timestamps = timestamps[is_new]
 
         r_latency = self.robot_action_latency if compensate_latency else 0.0
         # g_latency = self.gripper_action_latency if compensate_latency else 0.0
 
-        # Schedule waypoints exactly as requested – NO time filtering here.
-        for i in range(len(actions)):
-            r_actions = actions[i, :6]
-            g_actions = actions[i, 9:]  # if you re-enable gripper later
+        # Kx_trans = np.array([1000.0, 1000.0, 1000.0])
+        # Kx_rot = np.array([30.0, 30.0, 30.0])
+
+        # schedule waypoints
+        for i in range(len(new_actions)):
+            r_actions = new_actions[i,:6]
+            # g_actions = new_actions[i, 9:]
+            g_actions = new_actions[i, 6:]
+
+            # Kx_trans = new_actions[i, 6:9]
+            # Kx = np.concatenate([Kx_trans, Kx_rot])
+            
+            # Damping gains
+            # Kxd = 2 * 0.707 * np.sqrt(Kx)
+
+            # Update the impedance gains with Kx and Kxd
+            # self.robot.set_impedance(Kx, Kxd)
 
             self.robot.schedule_waypoint(
                 pose=r_actions,
-                target_time=timestamps[i] - r_latency
+                target_time=new_timestamps[i]-r_latency
             )
-            # self.gripper.schedule_waypoint(pos=g_actions)
+            self.gripper.schedule_waypoint(
+                pos=g_actions)
 
-        # Record actions as executed/scheduled
+        # record actions
         if self.action_accumulator is not None:
             self.action_accumulator.put(
-                actions,
-                timestamps
+                new_actions,
+                new_timestamps
             )
+
+    # def exec_actions(self, 
+    #     actions: np.ndarray, 
+    #     timestamps: np.ndarray,
+    #     compensate_latency=False):
+        
+    #     assert self.is_ready
+
+    #     # Ensure numpy arrays
+    #     if not isinstance(actions, np.ndarray):
+    #         actions = np.array(actions)
+    #     if not isinstance(timestamps, np.ndarray):
+    #         timestamps = np.array(timestamps)
+
+    #     # Basic shape check
+    #     assert actions.shape[0] == timestamps.shape[0], \
+    #         f"actions ({actions.shape[0]}) and timestamps ({timestamps.shape[0]}) must have same length"
+
+    #     r_latency = self.robot_action_latency if compensate_latency else 0.0
+    #     # g_latency = self.gripper_action_latency if compensate_latency else 0.0
+
+    #     # Schedule waypoints exactly as requested – NO time filtering here.
+    #     for i in range(len(actions)):
+    #         r_actions = actions[i, :6]
+    #         g_actions = actions[i, 9:]  # if you re-enable gripper later
+
+    #         self.robot.schedule_waypoint(
+    #             pose=r_actions,
+    #             target_time=timestamps[i] - r_latency
+    #         )
+    #         # self.gripper.schedule_waypoint(pos=g_actions)
+
+    #     # Record actions as executed/scheduled
+    #     if self.action_accumulator is not None:
+    #         self.action_accumulator.put(
+    #             actions,
+    #             timestamps
+    #         )
     
     def get_robot_state(self):
         return self.robot.get_state()

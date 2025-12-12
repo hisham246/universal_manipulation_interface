@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-file_path = "/home/hisham246/uwaterloo/test_peg_in_hole_rtc_2/robot_state_2_episode_1.csv"
+file_path = "/home/hisham246/uwaterloo/test_lerobot_style_rtc_reaching/robot_state_2_episode_0.csv"
 # file_path_time = "/home/hisham246/uwaterloo/test_reaching_rtc/robot_state_1_episode_1.csv"
 
 action = pd.read_csv(file_path)
