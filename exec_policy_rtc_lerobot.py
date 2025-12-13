@@ -432,31 +432,27 @@ def actor_control_umi_thread(
     i = 0
     executed = 0
 
-    if debug:
-        print("[ACTOR_UMI] started")
+    last_tick = time.monotonic()
 
-    # BEGIN: Actor loop (LeRobot-style)
     try:
         while not shutdown_event.is_set():
-            tick_start = time.monotonic()
-
-            # Update observation for RTC thread
+            loop_start = time.monotonic()
             obs = robot_wrapper.update_observation()
-
-            if debug and obs is not None and i % int(max(1, frequency)) == 0:
-                print(f"[ACTOR_UMI] obs latency: {time.time() - obs['timestamp'][-1]:.3f}s")
+            after_obs = time.monotonic()
 
             action = action_queue.get()
             if action is not None:
                 action = umi_action_processor(action)
                 robot_wrapper.send_action(action)
-                executed += 1
+            after_action = time.monotonic()
 
-            if debug and i % 50 == 0:
+            if i % 10 == 0:
                 print(
-                    f"[ACTOR_UMI] tick {i}, queue={action_queue.qsize()}, "
-                    f"step_time={(time.monotonic()-tick_start)*1000:.1f} ms"
+                    f"[ACTOR] dt_real={loop_start-last_tick:.3f}s, "
+                    f"get_obs={after_obs-loop_start:.3f}s, "
+                    f"send_action={after_action-after_obs:.3f}s"
                 )
+            last_tick = loop_start
 
             t_next = t_start + (i + 1) * dt
             precise_wait(t_next, time_func=time.monotonic)
@@ -482,7 +478,7 @@ def actor_control_umi_thread(
 @click.option('--match_dataset', '-m', default=None, help='Dataset used to overlay and adjust initial condition')
 @click.option('--match_camera', '-mc', default=0, type=int)
 @click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
-@click.option('--steps_per_inference', '-si', default=6, type=int, help="Action horizon for inference.")
+@click.option('--steps_per_inference', '-si', default=5, type=int, help="Action horizon for inference.")
 @click.option('--max_duration', '-md', default=360, help='Max duration for each epoch in seconds.')
 @click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
 @click.option('-nm', '--no_mirror', is_flag=True, default=False)
@@ -549,7 +545,8 @@ def main(
                 mirror_swap=mirror_swap,
                 max_pos_speed=1.5,
                 max_rot_speed=1.5,
-                shm_manager=shm_manager
+                shm_manager=shm_manager,
+                enable_gripper=False,
             ) as env:
 
             cv2.setNumThreads(2)
@@ -580,7 +577,7 @@ def main(
 
             # RTC configuration
             rtc_schedule = "exp"
-            rtc_max_guidance = 5.0
+            rtc_max_guidance = 10.0
 
             # Create workspace & policy AFTER fork
             cls = hydra.utils.get_class(cfg._target_)

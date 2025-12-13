@@ -66,7 +66,8 @@ class VicUmiEnv:
             max_rot_speed=1.5,
             multi_cam_vis_resolution=(960, 960),
             # shared memory
-            shm_manager=None
+            shm_manager=None,
+            enable_gripper=False,
             ):
         output_dir = pathlib.Path(output_dir)
         assert output_dir.parent.is_dir()
@@ -222,13 +223,24 @@ class VicUmiEnv:
             episode_id=self.episode_id_counter,
         )
         
-        gripper = FrankaHandController(
-            host=gripper_ip,
-            port=gripper_port,
-            speed=0.05,
-            force=20.0,
-            update_rate=frequency
-        )
+        # gripper = FrankaHandController(
+        #     host=gripper_ip,
+        #     port=gripper_port,
+        #     speed=0.05,
+        #     force=20.0,
+        #     update_rate=frequency
+        # )
+
+        if enable_gripper:
+            gripper = FrankaHandController(
+                host=gripper_ip,
+                port=gripper_port,
+                speed=0.05,
+                force=20.0,
+                update_rate=frequency
+            )
+        else:
+            gripper = None
 
         self.camera = camera
         self.robot = robot
@@ -261,16 +273,59 @@ class VicUmiEnv:
         self.action_accumulator = None
 
         self.start_time = None
+
+        # Gripper observation handling
+        # If True -> try to read real gripper; on failure, we disable and use cached/default.
+        self.use_gripper_obs = True
+        # Last known gripper width (in meters)
+        self._last_gripper_width = 0.079
             
     # ======== start-stop API =============
+    # @property
+    # def is_ready(self):
+    #     return self.camera.is_ready and self.robot.is_ready and self.gripper.is_ready
+    #     # return self.camera.is_ready and self.robot.is_ready
+
+    
+    # def start(self, wait=True):
+    #     self.camera.start(wait=False)
+    #     self.gripper.start(wait=False)
+    #     self.robot.start(wait=False)
+    #     if wait:
+    #         self.start_wait()
+
+    # def stop(self, wait=True):
+    #     self.end_episode()
+    #     self.robot.stop(wait=False)
+    #     self.gripper.stop(wait=False)
+    #     self.camera.stop(wait=False)
+    #     if wait:
+    #         self.stop_wait()
+
+    # def start_wait(self):
+    #     self.camera.start_wait()
+    #     self.gripper.start_wait()
+    #     self.robot.start_wait()
+    
+    # def stop_wait(self):
+    #     self.robot.stop_wait()
+    #     self.gripper.stop_wait()
+    #     self.camera.stop_wait()
+
     @property
     def is_ready(self):
-        return self.camera.is_ready and self.robot.is_ready and self.gripper.is_ready
-        # return self.camera.is_ready and self.robot.is_ready
+        cam_ready = self.camera.is_ready
+        robot_ready = self.robot.is_ready
+
+        if self.gripper is None:
+            return cam_ready and robot_ready
+
+        return cam_ready and robot_ready and self.gripper.is_ready
     
     def start(self, wait=True):
         self.camera.start(wait=False)
-        self.gripper.start(wait=False)
+        if self.gripper is not None:
+            self.gripper.start(wait=False)
         self.robot.start(wait=False)
         if wait:
             self.start_wait()
@@ -278,19 +333,22 @@ class VicUmiEnv:
     def stop(self, wait=True):
         self.end_episode()
         self.robot.stop(wait=False)
-        self.gripper.stop(wait=False)
+        if self.gripper is not None:
+            self.gripper.stop(wait=False)
         self.camera.stop(wait=False)
         if wait:
             self.stop_wait()
 
     def start_wait(self):
         self.camera.start_wait()
-        self.gripper.start_wait()
+        if self.gripper is not None:
+            self.gripper.start_wait()
         self.robot.start_wait()
     
     def stop_wait(self):
         self.robot.stop_wait()
-        self.gripper.stop_wait()
+        if self.gripper is not None:
+            self.gripper.stop_wait()
         self.camera.stop_wait()
 
     # ========= context manager ===========
@@ -328,7 +386,8 @@ class VicUmiEnv:
         # both have more than n_obs_steps data
 
         # 30 hz, gripper_receive_timestamp
-        last_gripper_data = self.gripper.get_all_state()
+        # last_gripper_data = self.gripper.get_all_state()
+        last_gripper_data = None
         last_timestamp = self.last_camera_data[0]['timestamp'][-1]
         dt = 1 / self.frequency
 
@@ -370,9 +429,38 @@ class VicUmiEnv:
         #     x=np.array(last_gripper_data['gripper_position'])[..., None]
         # )
 
-        x = np.array(last_gripper_data['gripper_position'])[-1]
+        # x = np.array(last_gripper_data['gripper_position'])[-1]
+        # gripper_obs = {
+        #     'robot0_gripper_width': np.repeat([[x]], self.gripper_obs_horizon, axis=0)
+        # }
+
+        # ========== SAFE GRIPPER OBS ==========
+        if self.use_gripper_obs and (self.gripper is not None):
+            try:
+                # This is the potentially blocking call
+                last_gripper_data = self.gripper.get_all_state()
+
+                # Extract last position and cache it
+                x = float(np.array(last_gripper_data['gripper_position'])[-1])
+                self._last_gripper_width = x
+
+            except Exception as e:
+                # On the first failure, permanently disable hardware gripper obs
+                print("[VicUmiEnv] gripper get_all_state failed; disabling gripper obs:", e)
+                self.use_gripper_obs = False
+                last_gripper_data = None
+
+        # If gripper is disabled or failed, use cached/default width
+        if not (self.use_gripper_obs and (last_gripper_data is not None)):
+            x = self._last_gripper_width
+
+        # Build gripper_obs for the policy: shape (horizon, 1)
         gripper_obs = {
-            'robot0_gripper_width': np.repeat([[x]], self.gripper_obs_horizon, axis=0)
+            'robot0_gripper_width': np.full(
+                (self.gripper_obs_horizon, 1),
+                x,
+                dtype=np.float32
+            )
         }
 
         # accumulate obs
@@ -385,12 +473,13 @@ class VicUmiEnv:
                 },
                 timestamps=last_robot_data['robot_timestamp']
             )
-            self.obs_accumulator.put(
-                data={
-                    'robot0_gripper_width': np.array(last_gripper_data['gripper_position'])[..., None]
-                },
-                timestamps=last_gripper_data['gripper_timestamp']
-            )
+            if last_gripper_data is not None:
+                self.obs_accumulator.put(
+                    data={
+                        'robot0_gripper_width': np.array(last_gripper_data['gripper_position'])[..., None]
+                    },
+                    timestamps=last_gripper_data['gripper_timestamp']
+                )
 
         # return obs
         obs_data = dict(camera_obs)
@@ -413,7 +502,7 @@ class VicUmiEnv:
         # convert action to pose
         receive_time = time.time()
         is_new = timestamps > receive_time
-        print("Is new", is_new)
+        # print("Is new", is_new)
         new_actions = actions[is_new]
         new_timestamps = timestamps[is_new]
 
@@ -423,11 +512,13 @@ class VicUmiEnv:
         # Kx_trans = np.array([1000.0, 1000.0, 1000.0])
         # Kx_rot = np.array([30.0, 30.0, 30.0])
 
+        print(len(new_actions))
+
         # schedule waypoints
         for i in range(len(new_actions)):
             r_actions = new_actions[i,:6]
-            # g_actions = new_actions[i, 9:]
             g_actions = new_actions[i, 6:]
+            # g_actions = new_actions[i, 9:]
 
             # Kx_trans = new_actions[i, 6:9]
             # Kx = np.concatenate([Kx_trans, Kx_rot])
@@ -442,8 +533,14 @@ class VicUmiEnv:
                 pose=r_actions,
                 target_time=new_timestamps[i]-r_latency
             )
-            self.gripper.schedule_waypoint(
-                pos=g_actions)
+            # self.gripper.schedule_waypoint(
+            #     pos=g_actions)
+            if self.gripper is not None:
+                try:
+                    self.gripper.schedule_waypoint(pos=g_actions)
+                except Exception as e:
+                    print("[VicUmiEnv] disabling gripper actions due to error:", e)
+                    self.gripper = None
 
         # record actions
         if self.action_accumulator is not None:
@@ -575,18 +672,38 @@ class VicUmiEnv:
                 episode['robot0_joint_pos'] = joint_pos_interpolator(timestamps)
                 episode['robot0_joint_vel'] = joint_vel_interpolator(timestamps)
 
-                gripper_ts = np.array(self.obs_accumulator.timestamps['robot0_gripper_width'])
-                gripper_data = np.array(self.obs_accumulator.data['robot0_gripper_width'])
+                # gripper_ts = np.array(self.obs_accumulator.timestamps['robot0_gripper_width'])
+                # gripper_data = np.array(self.obs_accumulator.data['robot0_gripper_width'])
 
-                if len(gripper_data) == 0 or len(gripper_ts) == 0:
-                    print("[Warning] No gripper data collected.")
+                # if len(gripper_data) == 0 or len(gripper_ts) == 0:
+                #     print("[Warning] No gripper data collected.")
+                #     episode['robot0_gripper_width'] = np.zeros((len(timestamps), 1))
+                # elif len(np.unique(gripper_ts)) < 2:
+                #     print("[Warning] Not enough unique gripper timestamps to interpolate. Repeating last value.")
+                #     episode['robot0_gripper_width'] = np.repeat(gripper_data[-1:], len(timestamps), axis=0)
+                # else:
+                #     gripper_interpolator = get_interp1d(t=gripper_ts, x=gripper_data)
+                #     episode['robot0_gripper_width'] = gripper_interpolator(timestamps)
+
+                gripper_key = 'robot0_gripper_width'
+                if (gripper_key not in self.obs_accumulator.timestamps or
+                    gripper_key not in self.obs_accumulator.data):
+                    print("[Warning] No gripper data collected (no key).")
                     episode['robot0_gripper_width'] = np.zeros((len(timestamps), 1))
-                elif len(np.unique(gripper_ts)) < 2:
-                    print("[Warning] Not enough unique gripper timestamps to interpolate. Repeating last value.")
-                    episode['robot0_gripper_width'] = np.repeat(gripper_data[-1:], len(timestamps), axis=0)
+
                 else:
-                    gripper_interpolator = get_interp1d(t=gripper_ts, x=gripper_data)
-                    episode['robot0_gripper_width'] = gripper_interpolator(timestamps)
+                    gripper_ts = np.array(self.obs_accumulator.timestamps[gripper_key])
+                    gripper_data = np.array(self.obs_accumulator.data[gripper_key])
+
+                    if len(gripper_data) == 0 or len(gripper_ts) == 0:
+                        print("[Warning] No gripper data collected (empty arrays).")
+                        episode['robot0_gripper_width'] = np.zeros((len(timestamps), 1))
+                    elif len(np.unique(gripper_ts)) < 2:
+                        print("[Warning] Not enough unique gripper timestamps to interpolate. Repeating last value.")
+                        episode['robot0_gripper_width'] = np.repeat(gripper_data[-1:], len(timestamps), axis=0)
+                    else:
+                        gripper_interpolator = get_interp1d(t=gripper_ts, x=gripper_data)
+                        episode['robot0_gripper_width'] = gripper_interpolator(timestamps)
 
                 self.replay_buffer.add_episode(episode, compressors='disk')
                 episode_id = self.replay_buffer.n_episodes - 1
