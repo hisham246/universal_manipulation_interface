@@ -51,48 +51,27 @@ from umi.real_world.real_inference_util import (
 
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
+class RTCSharedState:
+    def __init__(self, H: int, D_raw: int, D_world: int, d_init: int = 0, delay_buf_size: int = 100):
+        self.H = int(H)
+        self.D_raw = int(D_raw)
+        self.D_world = int(D_world)
 
-# =========================
-# Latency tracking utilities for Real-Time Chunking (RTC).
-# =========================
-    
-class LatencyTracker:
-    """Tracks recent latencies (seconds) and provides max/percentiles."""
+        self.M = threading.Lock()
+        self.C = threading.Condition(self.M)
 
-    def __init__(self, maxlen: int = 100):
-        self._values = deque(maxlen=maxlen)
-        self.reset()
+        self.t = 0
+        self.ocur = None
 
-    def reset(self) -> None:
-        self._values.clear()
-        self.max_latency = 0.0
+        self.Acur_raw   = np.zeros((self.H, self.D_raw), dtype=np.float32)
+        self.Acur_world = np.zeros((self.H, self.D_world), dtype=np.float32)
 
-    def add(self, latency: float) -> None:
-        val = float(latency)
-        if val < 0:
-            return
-        self._values.append(val)
-        self.max_latency = max(self.max_latency, val)
+        self.Q = deque([int(d_init)], maxlen=delay_buf_size)
 
-    def __len__(self) -> int:
-        return len(self._values)
+        self.episode_start_time = None
+        self.step_idx_global = 0
 
-    def max(self) -> float:
-        return self.max_latency
-
-    def percentile(self, q: float) -> float:
-        if not self._values:
-            return 0.0
-        q = float(q)
-        if q <= 0.0:
-            return min(self._values)
-        if q >= 1.0:
-            return self.max_latency
-        vals = np.array(list(self._values), dtype=np.float32)
-        return float(np.quantile(vals, q))
-
-    def p95(self) -> float:
-        return self.percentile(0.95)
+        self.acur_ready = False
 
 
 # =========================
@@ -100,120 +79,16 @@ class LatencyTracker:
 # =========================
 
 class UmiRobotWrapper:
-    """
-    LeRobot-like wrapper around VicUmiEnv.
-
-    - update_observation(): called by actor thread, fetches env.get_obs()
-    - get_observation(): used by RTC thread to read latest obs
-    - send_action(): takes one world-space action (1D np array) and calls env.exec_actions
-    """
-
-    def __init__(self, env: VicUmiEnv, dt: float):
+    def __init__(self, env: VicUmiEnv):
         self.env = env
-        self.dt = dt
 
-        self._latest_obs = None
-        self._obs_lock = threading.Lock()
+    def get_obs(self):
+        return self.env.get_obs()
 
-        self._next_action_time = None
-        self._action_time_lock = threading.Lock()
-
-    def update_observation(self):
-        """Actor thread: fetch new obs from env and store it."""
-        obs = self.env.get_obs()
-        with self._obs_lock:
-            self._latest_obs = obs
-        return obs
-
-    def get_observation(self):
-        """RTC thread: read latest obs set by actor thread."""
-        with self._obs_lock:
-            return self._latest_obs
-
-    def send_action(self, action_world_1d: np.ndarray, compensate_latency: bool = True):
-        """
-        Actor thread: send a single step to env.exec_actions as (1, D)
-        with a single timestamp. No explicit chunk/timestamp logic exposed.
-        """
-        assert action_world_1d.ndim == 1
-        now = time.time()
-
-        with self._action_time_lock:
-            if self._next_action_time is None:
-                self._next_action_time = now
-            # ensure we don't drift backwards in time
-            self._next_action_time = max(self._next_action_time + self.dt, now + 0.1 * self.dt)
-            t = self._next_action_time
-
-        actions = action_world_1d[None, :]                  # (1, D)
-        timestamps = np.array([t], dtype=np.float64)        # (1,)
-
-        self.env.exec_actions(
-            actions=actions,
-            timestamps=timestamps,
-            compensate_latency=compensate_latency
-        )
-
-    def reset_action_time(self, start_time: float):
-        with self._action_time_lock:
-            self._next_action_time = start_time
-
-
-# =========================
-# Simple world-space ActionQueue
-# =========================
-
-class UmiActionQueue:
-    """
-    Minimal LeRobot-like ActionQueue:
-
-    - Stores world-space actions (each entry is a 1D np.array)
-    - Actor thread calls get() to pop next action
-    - RTC thread calls replace_future_with() to overwrite the future plan
-    """
-
-    def __init__(self, max_size: Optional[int] = None):
-        self._queue = deque()
-        self._lock = threading.Lock()
-        self._max_size = max_size
-        self._last_index = 0  # for debugging / stats
-
-    def get(self):
-        with self._lock:
-            if not self._queue:
-                return None
-            self._last_index += 1
-            return self._queue.popleft()
-
-    def qsize(self):
-        with self._lock:
-            return len(self._queue)
-
-    def clear(self):
-        with self._lock:
-            self._queue.clear()
-            self._last_index = 0
-
-    def replace_future_with(self, new_actions: np.ndarray):
-        """
-        Replace queue with new_actions (np.array of shape [T, D]).
-        Equivalent to RTC's behavior where we drop old future and insert the
-        new RTC-refined chunk (after real_delay trimming).
-        """
-        if not isinstance(new_actions, np.ndarray):
-            new_actions = np.asarray(new_actions)
-
-        with self._lock:
-            self._queue.clear()
-            if self._max_size is not None and new_actions.shape[0] > self._max_size:
-                new_actions = new_actions[:self._max_size]
-            for i in range(new_actions.shape[0]):
-                self._queue.append(new_actions[i].copy())
-            self._last_index = 0
-
-    def get_action_index(self):
-        with self._lock:
-            return self._last_index
+    def send_action_at(self, action_world_1d: np.ndarray, target_time: float, compensate_latency: bool = True):
+        actions = action_world_1d[None, :]
+        timestamps = np.array([target_time], dtype=np.float64)
+        self.env.exec_actions(actions=actions, timestamps=timestamps, compensate_latency=compensate_latency)
 
 
 # =========================
@@ -257,156 +132,132 @@ def umi_action_processor(action_world_1d: np.ndarray) -> np.ndarray:
 def get_actions_umi_thread(
     policy,
     robot_wrapper: UmiRobotWrapper,
-    action_queue: UmiActionQueue,
-    latency_tracker: LatencyTracker,
+    shared: RTCSharedState,
     shutdown_event: threading.Event,
     shape_meta,
     obs_pose_repr,
     action_pose_repr,
-    dt: float,
-    steps_per_inference: int,
+    smin: int,
     rtc_schedule: str = "exp",
     rtc_max_guidance: float = 5.0,
     debug: bool = True,
 ):
-    """
-    UMI version of LeRobot's get_actions() thread.
-
-    - Uses LatencyTracker to forecast inference_delay in steps
-    - Uses predict_action_flow + realtime_action (RTC) to generate new chunks
-    - Converts model-space chunk to world-space with get_real_umi_action
-    - Drops first real_delay steps (already executed) and overwrites the future queue
-    """
     device = next(policy.parameters()).device
-    H, D = policy.action_horizon, policy.action_dim
-    time_per_step = dt
+    H = shared.H
+    D_raw = shared.D_raw
+    D_world = shared.D_world
 
-    # When queue size goes below this, we ask for a new chunk.
-    # You can tune this; starting with steps_per_inference is reasonable.
-    action_queue_size_to_get_new_actions = steps_per_inference
+    # ---- Bootstrap: wait for first obs, then compute Ainit ----
+    with shared.M:
+        obs0 = shared.ocur
 
-    prev_raw_chunk = None
-    chunk_idx = 0
+    while (obs0 is None) and (not shutdown_event.is_set()):
+        time.sleep(0.001)
+        with shared.M:
+            obs0 = shared.ocur
+
+    if shutdown_event.is_set():
+        return
+
+    obs_dict_np = umi_build_obs_dict(obs0, shape_meta, obs_pose_repr)
+    obs_dict = dict_apply(obs_dict_np, lambda x: torch.from_numpy(x).unsqueeze(0).to(device))
+
+    with torch.no_grad():
+        base = policy.predict_action_flow(obs_dict)
+        Araw = base["action_pred"][0].detach().cpu().numpy()           # (H, D_raw)
+        assert Araw.shape[0] == H, f"Araw H mismatch: {Araw.shape} vs H={H}"
+        assert Araw.shape[1] == D_raw, f"Araw D_raw mismatch: {Araw.shape} vs D_raw={D_raw}"
+
+        Aworld = get_real_umi_action(Araw, obs0, action_pose_repr)     # (H, D_world)
+        assert Aworld.shape[0] == H, f"Aworld H mismatch: {Aworld.shape} vs H={H}"
+        assert Aworld.shape[1] == D_world, f"Aworld D_world mismatch: {Aworld.shape} vs D_world={D_world}"
+
+    with shared.C:
+        shared.Acur_raw[...] = Araw
+        shared.Acur_world[...] = Aworld
+        shared.acur_ready = True
+        shared.C.notify_all()
 
     if debug:
-        print("[GET_ACTIONS_UMI] started")
+        print(f"[RTC] initialized Acur (bootstrap) raw={Araw.shape} world={Aworld.shape}")
 
-    # BEGIN: RTC get-actions loop (LeRobot-style)
-    try:
-        while not shutdown_event.is_set():
-            # Throttle chunk generation based on queue size
-            if action_queue.qsize() > action_queue_size_to_get_new_actions:
-                time.sleep(0.001)
+    # ---- Main loop ----
+    while not shutdown_event.is_set():
+        # Wait until at least smin steps have been executed into the current chunk
+        with shared.C:
+            while (shared.t < smin) and (not shutdown_event.is_set()):
+                shared.C.wait(timeout=0.01)
+            if shutdown_event.is_set():
+                break
+
+            # Snapshot execution index into current chunk
+            s_exec = int(min(shared.t, H))  # allow H, never > H
+
+            # Previous chunk tail (Aprev = Acur[s:])
+            Aprev_raw = shared.Acur_raw[s_exec:].copy()  # (H-s_exec, D_raw)
+
+            # Latest observation
+            obs = shared.ocur
+            if obs is None:
                 continue
 
-            env_obs = robot_wrapper.get_observation()
-            if env_obs is None:
-                # Wait until actor thread has produced at least one observation
-                time.sleep(0.001)
-                continue
+            # Delay forecast: max(Q)
+            d_hat = int(max(shared.Q)) if len(shared.Q) else 0
+            d_hat = int(min(max(d_hat, 0), H - 1))
 
-            # Build obs_dict (numpy -> torch)
-            obs_dict_np = umi_build_obs_dict(
-                env_obs=env_obs,
-                shape_meta=shape_meta,
-                obs_pose_repr=obs_pose_repr,
+        # Build obs_dict outside lock
+        obs_dict_np = umi_build_obs_dict(obs, shape_meta, obs_pose_repr)
+        obs_dict = dict_apply(obs_dict_np, lambda x: torch.from_numpy(x).unsqueeze(0).to(device))
+
+        # Pad Aprev_raw back to length H for policy API
+        if Aprev_raw.shape[0] < H:
+            pad = np.zeros((H - Aprev_raw.shape[0], D_raw), dtype=Aprev_raw.dtype)
+            Aprev_raw_full = np.concatenate([Aprev_raw, pad], axis=0)
+        else:
+            Aprev_raw_full = Aprev_raw[:H]
+
+        prev_chunk_tensor = torch.from_numpy(Aprev_raw_full).unsqueeze(0).to(device)
+
+        overlap_len = max(0, H - s_exec)
+
+        infer_start = time.time()
+        with torch.no_grad():
+            result = policy.realtime_action(
+                obs_dict,
+                prev_action_chunk=prev_chunk_tensor,
+                inference_delay=d_hat,
+                prefix_attention_horizon=overlap_len,
+                prefix_attention_schedule=rtc_schedule,
+                max_guidance_weight=rtc_max_guidance,
+                n_steps=policy.num_inference_steps,
             )
-            obs_dict = dict_apply(
-                obs_dict_np,
-                lambda x: torch.from_numpy(x).unsqueeze(0).to(device)
-            )
+        infer_end = time.time()
 
-            s_min = min(steps_per_inference, H)
+        Anew_raw = result["action_pred"][0].detach().cpu().numpy()      # (H, D_raw)
+        assert Anew_raw.shape == (H, D_raw), f"Anew_raw shape {Anew_raw.shape} != {(H, D_raw)}"
 
-            with torch.no_grad():
-                is_first_chunk = prev_raw_chunk is None
+        Anew_world = get_real_umi_action(Anew_raw, obs, action_pose_repr)  # (H, D_world)
+        assert Anew_world.shape == (H, D_world), f"Anew_world shape {Anew_world.shape} != {(H, D_world)}"
 
-                # Forecast inference_delay in steps from latency history
-                max_latency = latency_tracker.max() or 0.0
-                if max_latency > 0.0:
-                    d_forecast_raw = int(np.ceil(max_latency / time_per_step))
-                else:
-                    d_forecast_raw = s_min
+        # Swap Acur and compute observed delay
+        with shared.C:
+            shared.Acur_raw[...] = Anew_raw
+            shared.Acur_world[...] = Anew_world
 
-                s_horizon = int(min(max(s_min, d_forecast_raw), H))
-                d_forecast = int(min(max(0, d_forecast_raw), s_horizon))
-                prefix_attn_h = max(0, H - s_horizon)
+            observed_delay_steps = int(shared.t - s_exec)
+            observed_delay_steps = int(min(max(observed_delay_steps, 0), H - 1))
 
-                infer_start = time.time()
+            shared.t = observed_delay_steps
+            shared.Q.append(shared.t)
+            shared.C.notify_all()
 
-                # First chunk: bootstrap prev_raw_chunk with predict_action_flow
-                if is_first_chunk:
-                    base_result = policy.predict_action_flow(obs_dict)
-                    prev_raw_chunk = base_result['action_pred'][0].detach().cpu().numpy()
-
-                prev_chunk_tensor = torch.from_numpy(prev_raw_chunk).unsqueeze(0).to(device)
-
-                result = policy.realtime_action(
-                    obs_dict,
-                    prev_action_chunk=prev_chunk_tensor,
-                    inference_delay=d_forecast,
-                    prefix_attention_horizon=prefix_attn_h,
-                    prefix_attention_schedule=rtc_schedule,
-                    max_guidance_weight=rtc_max_guidance,
-                    n_steps=policy.num_inference_steps
-                )
-
-                curr_raw_chunk = result['action_pred'][0].detach().cpu().numpy()
-
-                # Measure real latency and convert to step-based delay
-                inference_time = time.time() - infer_start  # seconds
-                latency_tracker.add(inference_time)
-
-                real_delay_steps = int(np.ceil(inference_time / time_per_step))
-                real_delay_steps = max(0, min(real_delay_steps, s_horizon))
-                if is_first_chunk:
-                    # First chunk: nothing old is being executed yet
-                    real_delay_steps = 0
-
-                # Convert model-space chunk to world-space actions
-                curr_action_world = get_real_umi_action(
-                    curr_raw_chunk,
-                    env_obs,
-                    action_pose_repr
-                )
-
-                H_world = min(curr_action_world.shape[0], H)
-                s_horizon = min(s_horizon, H_world)
-                real_delay_steps = min(real_delay_steps, s_horizon)
-
-                # Drop first real_delay_steps actions (executed while policy was thinking)
-                this_chunk_world = curr_action_world[real_delay_steps:s_horizon]
-                actions_to_queue = this_chunk_world.shape[0]
-
-                if actions_to_queue > 0:
-                    action_queue.replace_future_with(this_chunk_world)
-
-                if debug:
-                    print(
-                        f"[GET_ACTIONS_UMI] chunk {chunk_idx} | "
-                        f"lat={inference_time*1000:.1f}ms | "
-                        f"d_forecast={d_forecast} | real_delay={real_delay_steps} | "
-                        f"s_horizon={s_horizon} | qsize={action_queue.qsize()}"
-                    )
-
-                # Shift prev_raw_chunk by s_horizon (committed window)
-                if s_horizon < H:
-                    shifted = curr_raw_chunk[s_horizon:]
-                    pad = np.zeros((s_horizon, D), dtype=curr_raw_chunk.dtype)
-                    prev_raw_chunk = np.concatenate([shifted, pad], axis=0)
-                else:
-                    prev_raw_chunk = np.zeros_like(curr_raw_chunk)
-
-                chunk_idx += 1
-
-            time.sleep(0.0005)
-
-    except Exception as e:
-        print(f"[GET_ACTIONS_UMI] Exception: {e}")
-    finally:
         if debug:
-            print("[GET_ACTIONS_UMI] exiting")
-    # END: RTC get-actions loop (LeRobot-style)
+            qmax = int(max(shared.Q)) if len(shared.Q) else 0
+            print(
+                f"[RTC] s_exec={s_exec} overlap={overlap_len} "
+                f"d_hat={d_hat} d_obs={observed_delay_steps} "
+                f"infer={(infer_end-infer_start)*1000:.1f}ms Qmax={qmax} reset_t={shared.t}"
+            )
 
 
 # =========================
@@ -415,56 +266,81 @@ def get_actions_umi_thread(
 
 def actor_control_umi_thread(
     robot_wrapper: UmiRobotWrapper,
-    action_queue: UmiActionQueue,
+    shared: RTCSharedState,
     shutdown_event: threading.Event,
     frequency: float,
     debug: bool = False,
 ):
-    """
-    LeRobot-style actor:
-    - runs at fixed frequency
-    - refreshes observation
-    - pops next action from queue
-    - sends action to robot
-    """
     dt = 1.0 / frequency
-    t_start = time.monotonic()
-    i = 0
-    executed = 0
 
-    last_tick = time.monotonic()
+    # Wait until Acur is ready
+    with shared.C:
+        while (not shared.acur_ready) and (not shutdown_event.is_set()):
+            shared.C.wait(timeout=0.01)
+    if shutdown_event.is_set():
+        return
 
-    try:
-        while not shutdown_event.is_set():
-            loop_start = time.monotonic()
-            obs = robot_wrapper.update_observation()
-            after_obs = time.monotonic()
+    # Wait until episode_start_time (wall clock)
+    with shared.M:
+        t0_wall = shared.episode_start_time
+    if t0_wall is None:
+        t0_wall = time.time()
+        with shared.M:
+            shared.episode_start_time = t0_wall
+            shared.step_idx_global = 0
 
-            action = action_queue.get()
-            if action is not None:
-                action = umi_action_processor(action)
-                robot_wrapper.send_action(action)
-            after_action = time.monotonic()
+    while (time.time() < t0_wall) and (not shutdown_event.is_set()):
+        precise_wait(t0_wall, time_func=time.time)
+    if shutdown_event.is_set():
+        return
 
-            if i % 10 == 0:
-                print(
-                    f"[ACTOR] dt_real={loop_start-last_tick:.3f}s, "
-                    f"get_obs={after_obs-loop_start:.3f}s, "
-                    f"send_action={after_action-after_obs:.3f}s"
-                )
-            last_tick = loop_start
+    next_tick_mono = time.monotonic()
 
-            t_next = t_start + (i + 1) * dt
-            precise_wait(t_next, time_func=time.monotonic)
-            i += 1
+    while not shutdown_event.is_set():
+        # 1) get observation (onext)
+        obs = robot_wrapper.get_obs()
 
-    except Exception as e:
-        print(f"[ACTOR_UMI] Exception: {e}")
-    finally:
-        if debug:
-            print(f"[ACTOR_UMI] exiting, executed {executed} actions")
-    # END: Actor loop (LeRobot-style)
+        # 2) GETACTION critical section
+        with shared.C:
+            shared.ocur = obs
 
+            # If we consumed the whole chunk, block until RTC swaps a new chunk and resets t
+            while (shared.t >= shared.H) and (not shutdown_event.is_set()):
+                shared.C.wait(timeout=0.01)
+            if shutdown_event.is_set():
+                break
+
+            # Advance into the chunk and wake inference
+            shared.t += 1
+            shared.C.notify()
+
+            idx = shared.t - 1  # guaranteed < H
+            action = shared.Acur_world[idx].copy()
+
+            # Deterministic timestamp grid, but "future-safe" so env.exec_actions won't drop it
+            now = time.time()
+            if shared.episode_start_time is None:
+                shared.episode_start_time = now
+                shared.step_idx_global = 0
+
+            eps = 0.002  # 2ms safety
+            while shared.episode_start_time + shared.step_idx_global * dt <= now + eps:
+                shared.step_idx_global += 1
+
+            target_time = shared.episode_start_time + shared.step_idx_global * dt
+            shared.step_idx_global += 1
+
+        # 3) execute action
+        robot_wrapper.send_action_at(action, target_time)
+
+        # 4) sleep to maintain loop timing
+        next_tick_mono += dt
+        precise_wait(next_tick_mono, time_func=time.monotonic)
+
+        if debug and (shared.step_idx_global % 20 == 0):
+            with shared.M:
+                qmax = int(max(shared.Q)) if len(shared.Q) else 0
+                print(f"[ACTOR] t={shared.t} step_global={shared.step_idx_global} Qmax={qmax}")
 
 # =========================
 # Main CLI
@@ -628,72 +504,88 @@ def main(
             print('Ready!')
 
             # Wrap env in LeRobot-style robot wrapper
-            robot_wrapper = UmiRobotWrapper(env, dt=dt)
+            robot_wrapper = UmiRobotWrapper(env)
 
             try:
                 while True:
                     # New episode
-                    policy.reset()
 
-                    # Per-episode queue & latency tracker
-                    action_queue = UmiActionQueue(
-                        max_size=policy.action_horizon * 2
-                    )
-                    latency_tracker = LatencyTracker(maxlen=100)
-                    shutdown_event = threading.Event()
+                    policy.reset()
 
                     start_delay = 1.0
                     eval_t_start = time.time() + start_delay
-
                     t_start_mono = time.monotonic() + start_delay
-                    env.start_episode(eval_t_start)
-                    robot_wrapper.reset_action_time(eval_t_start)
 
-                    # Wait a bit before start to align camera frames
+                    shutdown_event = threading.Event()
+
+                    # Prime first obs so we can infer D_world correctly
+                    obs0 = env.get_obs()
+
+                    H = int(policy.action_horizon)
+                    D_raw = int(policy.action_dim)
+
+                    # Infer D_world from your adapter (pose6 + gripper1 => 7)
+                    Araw_dummy = np.zeros((H, D_raw), dtype=np.float32)
+                    Aworld_dummy = get_real_umi_action(Araw_dummy, obs0, action_pose_repr)
+                    D_world = int(Aworld_dummy.shape[1])
+
+                    shared = RTCSharedState(H=H, D_raw=D_raw, D_world=D_world, d_init=0, delay_buf_size=100)
+
+                    # Anchor shared episode start time to the same start time used by env.start_episode
+                    shared.episode_start_time = eval_t_start
+                    shared.step_idx_global = 0
+
+                    # Start recording
+                    env.start_episode(eval_t_start)
+
+                    # Store initial observation for RTC bootstrap
+                    with shared.M:
+                        shared.ocur = obs0
+
+
                     frame_latency = 1 / 60
                     precise_wait(eval_t_start - frame_latency, time_func=time.time)
                     print("Started!")
 
-                    # Threads
-                    actor_thread = threading.Thread(
-                        target=actor_control_umi_thread,
-                        args=(robot_wrapper, action_queue, shutdown_event, frequency),
-                        kwargs={'debug': False},
-                        daemon=True
-                    )
                     rtc_thread = threading.Thread(
                         target=get_actions_umi_thread,
                         args=(
                             policy,
                             robot_wrapper,
-                            action_queue,
-                            latency_tracker,
+                            shared,
                             shutdown_event,
                             cfg.task.shape_meta,
                             obs_pose_rep,
                             action_pose_repr,
-                            dt,
-                            steps_per_inference,
+                            steps_per_inference,   # smin
                         ),
                         kwargs={
-                            'rtc_schedule': rtc_schedule,
-                            'rtc_max_guidance': rtc_max_guidance,
-                            'debug': True
+                            "rtc_schedule": rtc_schedule,
+                            "rtc_max_guidance": rtc_max_guidance,
+                            "debug": True,
                         },
-                        daemon=True
+                        daemon=True,
                     )
 
-                    actor_thread.start()
-                    rtc_thread.start()
+                    actor_thread = threading.Thread(
+                        target=actor_control_umi_thread,
+                        args=(robot_wrapper, shared, shutdown_event, frequency),
+                        kwargs={"debug": False},
+                        daemon=True,
+                    )
 
-                    # Main loop: keyboard, visualization, duration
+                    # start inference first (optional), actor will wait on shared.acur_ready anyway
+                    rtc_thread.start()
+                    actor_thread.start()
+
                     t_start = t_start_mono
                     episode_id = env.replay_buffer.n_episodes
                     print(f"Episode {episode_id} running...")
 
                     while True:
                         # Visualization based on latest obs from actor thread
-                        obs_vis = robot_wrapper.get_observation()
+                        with shared.M:
+                            obs_vis = shared.ocur
                         if obs_vis is not None:
                             if mirror_crop:
                                 vis_img = obs_vis[f'camera{vis_camera_idx}_rgb'][-1]
