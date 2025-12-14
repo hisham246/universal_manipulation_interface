@@ -2,7 +2,7 @@
 Usage:
 (umi): python exec_policy_rtc_lerobot.py -o output
 
-LeRobot-style RTC architecture:
+RTC architecture:
 - Actor thread that sends 1 action every dt to the robot
 - Get-actions thread that runs RTC (realtime_action) and overwrites the future queue
 - Main thread handles episodes, keyboard, visualization
@@ -51,10 +51,6 @@ from umi.real_world.real_inference_util import (
 
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
-
-# =========================
-# Latency tracking utilities for Real-Time Chunking (RTC).
-# =========================
     
 class LatencyTracker:
     """Tracks recent latencies (seconds) and provides max/percentiles."""
@@ -95,13 +91,9 @@ class LatencyTracker:
         return self.percentile(0.95)
 
 
-# =========================
-# Robot wrapper around VicUmiEnv
-# =========================
-
 class UmiRobotWrapper:
     """
-    LeRobot-like wrapper around VicUmiEnv.
+    Wrapper around VicUmiEnv.
 
     - update_observation(): called by actor thread, fetches env.get_obs()
     - get_observation(): used by RTC thread to read latest obs
@@ -159,13 +151,9 @@ class UmiRobotWrapper:
             self._next_action_time = start_time
 
 
-# =========================
-# Simple world-space ActionQueue
-# =========================
-
 class UmiActionQueue:
     """
-    Minimal LeRobot-like ActionQueue:
+    ActionQueue:
 
     - Stores world-space actions (each entry is a 1D np.array)
     - Actor thread calls get() to pop next action
@@ -249,11 +237,6 @@ def umi_action_processor(action_world_1d: np.ndarray) -> np.ndarray:
     """
     return action_world_1d
 
-
-# =========================
-# RTC get-actions thread (LeRobot-style)
-# =========================
-
 def get_actions_umi_thread(
     policy,
     robot_wrapper: UmiRobotWrapper,
@@ -270,7 +253,7 @@ def get_actions_umi_thread(
     debug: bool = True,
 ):
     """
-    UMI version of LeRobot's get_actions() thread.
+    get_actions() thread.
 
     - Uses LatencyTracker to forecast inference_delay in steps
     - Uses predict_action_flow + realtime_action (RTC) to generate new chunks
@@ -291,7 +274,7 @@ def get_actions_umi_thread(
     if debug:
         print("[GET_ACTIONS_UMI] started")
 
-    # BEGIN: RTC get-actions loop (LeRobot-style)
+    # BEGIN: RTC get-actions loop
     try:
         while not shutdown_event.is_set():
             # Throttle chunk generation based on queue size
@@ -406,12 +389,6 @@ def get_actions_umi_thread(
     finally:
         if debug:
             print("[GET_ACTIONS_UMI] exiting")
-    # END: RTC get-actions loop (LeRobot-style)
-
-
-# =========================
-# Actor thread (LeRobot-style)
-# =========================
 
 def actor_control_umi_thread(
     robot_wrapper: UmiRobotWrapper,
@@ -421,7 +398,7 @@ def actor_control_umi_thread(
     debug: bool = False,
 ):
     """
-    LeRobot-style actor:
+    Actor:
     - runs at fixed frequency
     - refreshes observation
     - pops next action from queue
@@ -463,24 +440,19 @@ def actor_control_umi_thread(
     finally:
         if debug:
             print(f"[ACTOR_UMI] exiting, executed {executed} actions")
-    # END: Actor loop (LeRobot-style)
 
-
-# =========================
-# Main CLI
-# =========================
 
 @click.command()
 @click.option('--output', '-o', required=True, help='Directory to save recording')
 @click.option('--robot_ip', default='129.97.71.27')
-@click.option('--gripper_ip', default='129.97.71.27')
-@click.option('--gripper_port', type=int, default=4242)
+# @click.option('--gripper_ip', default='129.97.71.27')
+# @click.option('--gripper_port', type=int, default=4242)
 @click.option('--match_dataset', '-m', default=None, help='Dataset used to overlay and adjust initial condition')
 @click.option('--match_camera', '-mc', default=0, type=int)
 @click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
 @click.option('--steps_per_inference', '-si', default=6, type=int, help="Action horizon for inference.")
 @click.option('--max_duration', '-md', default=360, help='Max duration for each epoch in seconds.')
-@click.option('--frequency', '-f', default=20, type=float, help="Control frequency in Hz.")
+@click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
 @click.option('-nm', '--no_mirror', is_flag=True, default=False)
 @click.option('-sf', '--sim_fov', type=float, default=None)
 @click.option('-ci', '--camera_intrinsics', type=str, default=None)
@@ -488,15 +460,16 @@ def actor_control_umi_thread(
 @click.option('--mirror_swap', is_flag=True, default=False)
 
 def main(
-    output, robot_ip, gripper_ip, gripper_port,
+    output, robot_ip, 
+    # gripper_ip, gripper_port,
     match_dataset, match_camera, vis_camera_idx, steps_per_inference,
     max_duration, frequency, no_mirror, sim_fov, camera_intrinsics,
     mirror_crop, mirror_swap
 ):
 
     # Diffusion UNet ckpt
-    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/reaching_ball_multimodal_16.ckpt'
-    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/peg_in_hole_position_control.ckpt'
+    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/reaching_ball_multimodal_16.ckpt'
+    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/peg_in_hole_position_control.ckpt'
 
     payload = torch.load(open(ckpt_path, 'rb'), map_location='cpu', pickle_module=dill)
     cfg = payload['cfg']
@@ -525,20 +498,20 @@ def main(
             VicUmiEnv(
                 output_dir=output,
                 robot_ip=robot_ip,
-                gripper_ip=gripper_ip,
-                gripper_port=gripper_port,
+                # gripper_ip=gripper_ip,
+                # gripper_port=gripper_port,
                 frequency=frequency,
                 obs_image_resolution=obs_res,
                 obs_float32=True,
                 camera_reorder=None,
                 camera_obs_latency=0.0,
                 robot_obs_latency=0.0,
-                gripper_obs_latency=0.0,
+                # gripper_obs_latency=0.0,
                 robot_action_latency=0.0,
-                gripper_action_latency=0.0,
+                # gripper_action_latency=0.0,
                 camera_obs_horizon=cfg.task.shape_meta.obs.camera0_rgb.horizon,
                 robot_obs_horizon=cfg.task.shape_meta.obs.robot0_eef_pos.horizon,
-                gripper_obs_horizon=cfg.task.shape_meta.obs.robot0_gripper_width.horizon,
+                # gripper_obs_horizon=cfg.task.shape_meta.obs.robot0_gripper_width.horizon,
                 no_mirror=no_mirror,
                 fisheye_converter=fisheye_converter,
                 mirror_crop=mirror_crop,
@@ -546,14 +519,14 @@ def main(
                 max_pos_speed=1.5,
                 max_rot_speed=1.5,
                 shm_manager=shm_manager,
-                enable_gripper=False,
+                # enable_gripper=False,
             ) as env:
 
             cv2.setNumThreads(2)
             print("Waiting for camera")
             time.sleep(1.0)
 
-            # Optional: load match_dataset (unchanged from your script)
+            # Load match_dataset
             episode_first_frame_map = dict()
             match_replay_buffer = None
             if match_dataset is not None:
@@ -577,9 +550,9 @@ def main(
 
             # RTC configuration
             rtc_schedule = "exp"
-            rtc_max_guidance = 20.0
+            rtc_max_guidance = 30.0
 
-            # Create workspace & policy AFTER fork
+            # Create workspace & policy after fork
             cls = hydra.utils.get_class(cfg._target_)
             workspace = cls(cfg)
             workspace: BaseWorkspace
@@ -627,7 +600,7 @@ def main(
 
             print('Ready!')
 
-            # Wrap env in LeRobot-style robot wrapper
+            # Wrap env in robot wrapper
             robot_wrapper = UmiRobotWrapper(env, dt=dt)
 
             try:
