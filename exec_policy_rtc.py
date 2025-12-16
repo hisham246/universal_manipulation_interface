@@ -687,7 +687,7 @@ def main(
                                 thickness=1,
                                 color=(255, 255, 255)
                             )
-                            # cv2.imshow('default', vis_img[..., ::-1])
+                            cv2.imshow('default', vis_img[..., ::-1])
 
                         _ = cv2.pollKey()
                         press_events = key_counter.get_press_events()
