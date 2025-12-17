@@ -223,9 +223,9 @@ class UmiDataset(BaseDataset):
         action_normalizers = list()
         for i in range(self.num_robot):
             action_normalizers.append(get_range_normalizer_from_stat(array_to_stats(data_cache['action'][..., i * dim_a: i * dim_a + 3])))              # pos
-            # action_normalizers.append(get_identity_normalizer_from_stat(array_to_stats(data_cache['action'][..., i * dim_a + 3: (i + 1) * dim_a]))) # rot
-            action_normalizers.append(get_identity_normalizer_from_stat(array_to_stats(data_cache['action'][..., i * dim_a + 3: (i + 1) * dim_a - 1]))) # rot
-            action_normalizers.append(get_range_normalizer_from_stat(array_to_stats(data_cache['action'][..., (i + 1) * dim_a - 1: (i + 1) * dim_a])))  # gripper
+            action_normalizers.append(get_identity_normalizer_from_stat(array_to_stats(data_cache['action'][..., i * dim_a + 3: (i + 1) * dim_a]))) # rot
+            # action_normalizers.append(get_identity_normalizer_from_stat(array_to_stats(data_cache['action'][..., i * dim_a + 3: (i + 1) * dim_a - 1]))) # rot
+            # action_normalizers.append(get_range_normalizer_from_stat(array_to_stats(data_cache['action'][..., (i + 1) * dim_a - 1: (i + 1) * dim_a])))  # gripper
 
         normalizer['action'] = concatenate_normalizer(action_normalizers)
 
@@ -239,14 +239,14 @@ class UmiDataset(BaseDataset):
                 this_normalizer = get_range_normalizer_from_stat(stat)
             elif key.endswith('rot_axis_angle') or 'rot_axis_angle_wrt' in key:
                 this_normalizer = get_identity_normalizer_from_stat(stat)
-            elif key.endswith('gripper_width'):
-                this_normalizer = get_range_normalizer_from_stat(stat)
+            # elif key.endswith('gripper_width'):
+            #     this_normalizer = get_range_normalizer_from_stat(stat)
             else:
                 raise RuntimeError('unsupported')
             
-            # if not key.endswith('gripper_width'):
-            #     normalizer[key] = this_normalizer
-            normalizer[key] = this_normalizer
+            if not key.endswith('gripper_width'):
+                normalizer[key] = this_normalizer
+            # normalizer[key] = this_normalizer
 
         # image
         for key in self.rgb_keys:
@@ -362,9 +362,9 @@ class UmiDataset(BaseDataset):
             obs_pose = mat_to_pose10d(obs_pose_mat)
             action_pose = mat_to_pose10d(action_pose_mat)
         
-            action_gripper = data['action'][..., 7 * robot_id + 6: 7 * robot_id + 7]
-            actions.append(np.concatenate([action_pose, action_gripper], axis=-1))
-            # actions.append(action_pose)
+            # action_gripper = data['action'][..., 7 * robot_id + 6: 7 * robot_id + 7]
+            # actions.append(np.concatenate([action_pose, action_gripper], axis=-1))
+            actions.append(action_pose)
 
             # generate data
             obs_dict[f'robot{robot_id}_eef_pos'] = obs_pose[:,:3]
