@@ -469,7 +469,7 @@ def main(
 
     # Diffusion UNet ckpt
     # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/reaching_ball_multimodal_16.ckpt'
-    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/peg_in_hole_position_control.ckpt'
+    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/peg_in_hole_insertion.ckpt'
 
     payload = torch.load(open(ckpt_path, 'rb'), map_location='cpu', pickle_module=dill)
     cfg = payload['cfg']
