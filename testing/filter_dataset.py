@@ -6,8 +6,8 @@ from diffusion_policy.codecs.imagecodecs_numcodecs import register_codecs, JpegX
 register_codecs()
 
 # Paths
-input_path = "/home/hisham246/uwaterloo/umi/surface_wiping_trial_1/dataset.zarr.zip"
-output_path = "/home/hisham246/uwaterloo/umi/surface_wiping_trial_1/filtered_dataset.zarr.zip"
+input_path = "/home/hisham246/uwaterloo/peg_in_hole_umi/peg_in_hole_insertion.zarr.zip"
+output_path = "/home/hisham246/uwaterloo/peg_in_hole_umi/peg_in_hole_insertion_final.zarr.zip"
 
 # Open input Zarr
 root_in = zarr.open(input_path, mode='r')
@@ -17,7 +17,7 @@ episode_ends = meta_in["episode_ends"][:]
 episode_starts = np.concatenate([[0], episode_ends[:-1]])
 
 # Episodes to drop (1-indexed for clarity)
-drop_episodes = {2, 3, 21}  # change as needed
+drop_episodes = [18, 40, 42, 59, 67, 69, 91, 118, 147, 148, 156, 170, 178]  # change as needed
 keep_indices = [i for i in range(len(episode_starts)) if (i + 1) not in drop_episodes]
 
 # Compute new episode boundaries
