@@ -2,13 +2,17 @@ name: umi
 
 camera_obs_latency: 0.125
 robot_obs_latency: 0.0001
+dataset_frequency: 59.94
+
+# camera_obs_latency: 0
+# robot_obs_latency: 0
 # gripper_obs_latency: 0.02
-dataset_frequency: 0 #59.94
+# dataset_frequency: 0 #59.94
 obs_down_sample_steps: 3 # 3, 1
 
 low_dim_obs_horizon: 2
 img_obs_horizon: 2
-action_horizon: 16
+action_horizon: 8
 ignore_proprioception: False
 
 shape_meta: &shape_meta

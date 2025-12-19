@@ -92,7 +92,7 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 # @click.option('--temporal_ensembling', is_flag=True, default=False, help='Enable temporal ensembling for inference.')
 
 def main(output, robot_ip, 
-        #  gripper_ip, gripper_port,
+    #  gripper_ip, gripper_port,
     match_dataset, match_camera,
     vis_camera_idx, steps_per_inference, max_duration,
     frequency, no_mirror, sim_fov, camera_intrinsics, 
