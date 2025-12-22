@@ -30,7 +30,7 @@ data.create_dataset(
     data=stiffness,
     shape=stiffness.shape,
     dtype='f4',
-    compressor=zarr.Blosc(cname='zstd', clevel=5, shuffle=1),
+    compressor=None,
     chunks=(1, 6)
 )
 
