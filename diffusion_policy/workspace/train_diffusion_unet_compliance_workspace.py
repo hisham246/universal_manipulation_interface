@@ -301,13 +301,13 @@ class TrainDiffusionUnetComplianceWorkspace(BaseWorkspace):
                 
                 def log_action_mse(step_log, category, pred_action, gt_action):
                     B, T, _ = pred_action.shape
-                    pred_action = pred_action.view(B, T, -1, 16)
-                    gt_action = gt_action.view(B, T, -1, 16)
+                    pred_action = pred_action.view(B, T, -1, 15)
+                    gt_action = gt_action.view(B, T, -1, 15)
                     step_log[f'{category}_action_mse_error'] = torch.nn.functional.mse_loss(pred_action, gt_action)
                     step_log[f'{category}_action_mse_error_pos'] = torch.nn.functional.mse_loss(pred_action[..., :3], gt_action[..., :3])
                     step_log[f'{category}_action_mse_error_rot'] = torch.nn.functional.mse_loss(pred_action[..., 3:9], gt_action[..., 3:9])
                     step_log[f'{category}_action_mse_error_stiffness'] = torch.nn.functional.mse_loss(pred_action[..., 9:15], gt_action[..., 9:15])
-                    step_log[f'{category}_action_mse_error_width'] = torch.nn.functional.mse_loss(pred_action[..., 15], gt_action[..., 15])
+                    # step_log[f'{category}_action_mse_error_width'] = torch.nn.functional.mse_loss(pred_action[..., 15], gt_action[..., 15])
                 # run diffusion sampling on a training batch
                 if (self.epoch % cfg.training.sample_every) == 0 and accelerator.is_main_process:
                     with torch.no_grad():

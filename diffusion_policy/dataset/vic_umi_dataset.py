@@ -221,10 +221,13 @@ class VicUmiDataset(BaseDataset):
         dim_a = data_cache['action'].shape[-1] // self.num_robot
         action_normalizers = list()
         for i in range(self.num_robot):
+            start_idx = i * dim_a
+            end_idx = (i + 1) * dim_a
             action_normalizers.append(get_range_normalizer_from_stat(array_to_stats(data_cache['action'][..., i * dim_a: i * dim_a + 3])))              # pos
-            action_normalizers.append(get_identity_normalizer_from_stat(array_to_stats(data_cache['action'][..., i * dim_a + 3: (i + 1) * dim_a - 7]))) # rot
-            action_normalizers.append(get_range_normalizer_from_stat(array_to_stats(data_cache['action'][..., (i + 1) * dim_a - 7: (i + 1) * dim_a - 1]))) # stiffness
-            action_normalizers.append(get_range_normalizer_from_stat(array_to_stats(data_cache['action'][..., (i + 1) * dim_a - 1: (i + 1) * dim_a])))  # gripper
+            action_normalizers.append(get_identity_normalizer_from_stat(array_to_stats(data_cache['action'][..., start_idx + 3 : end_idx - 6])))        # rot
+            action_normalizers.append(get_range_normalizer_from_stat(array_to_stats(data_cache['action'][..., end_idx - 6 : end_idx])))                 # stiffness
+            # action_normalizers.append(get_range_normalizer_from_stat(array_to_stats(data_cache['action'][..., (i + 1) * dim_a - 7: (i + 1) * dim_a - 1]))) # stiffness
+            # action_normalizers.append(get_range_normalizer_from_stat(array_to_stats(data_cache['action'][..., (i + 1) * dim_a - 1: (i + 1) * dim_a])))  # gripper
 
         normalizer['action'] = concatenate_normalizer(action_normalizers)
 
@@ -238,11 +241,16 @@ class VicUmiDataset(BaseDataset):
                 this_normalizer = get_range_normalizer_from_stat(stat)
             elif key.endswith('rot_axis_angle') or 'rot_axis_angle_wrt' in key:
                 this_normalizer = get_identity_normalizer_from_stat(stat)
-            elif key.endswith('gripper_width'):
-                this_normalizer = get_range_normalizer_from_stat(stat)
+            # elif key.endswith('gripper_width'):
+            #     this_normalizer = get_range_normalizer_from_stat(stat)
+            # else:
+            #     raise RuntimeError('unsupported')
+            # normalizer[key] = this_normalizer
             else:
                 raise RuntimeError('unsupported')
-            normalizer[key] = this_normalizer
+            
+            if not key.endswith('gripper_width'):
+                normalizer[key] = this_normalizer
 
         # image
         for key in self.rgb_keys:
@@ -366,14 +374,16 @@ class VicUmiDataset(BaseDataset):
             action_pose = mat_to_pose10d(action_pose_mat)
 
             # print("Action data:", data['action'])
+
+            action_stiffness = data['action'][..., 12 * robot_id + 6 : 12 * robot_id + 12]
         
-            action_stiffness = data['action'][..., 13 * robot_id + 6 : 13 * robot_id + 12]
-            action_gripper = data['action'][..., 13 * robot_id + 12 : 13 * robot_id + 13]
+            # action_stiffness = data['action'][..., 13 * robot_id + 6 : 13 * robot_id + 12]
+            # action_gripper = data['action'][..., 13 * robot_id + 12 : 13 * robot_id + 13]
 
             # print(f"action_stiffness: {action_stiffness}")
             # print(f"action_gripper: {action_gripper}")
 
-            actions.append(np.concatenate([action_pose, action_stiffness, action_gripper], axis=-1))
+            actions.append(np.concatenate([action_pose, action_stiffness], axis=-1))
 
             # print('Action dimension:', actions[-1].shape)
 
