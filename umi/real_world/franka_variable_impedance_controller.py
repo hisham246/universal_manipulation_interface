@@ -19,7 +19,7 @@ class Command(enum.Enum):
     STOP = 0
     SERVOL = 1
     SCHEDULE_WAYPOINT = 2
-    SET_IMPEDANCE = 3
+    # SET_IMPEDANCE = 3
 
 
 class FrankaInterface:
@@ -276,6 +276,7 @@ class FrankaVariableImpedanceController(mp.Process):
             robot_state_path_2 = pathlib.Path("/tmp/robot_state_2.csv")
             joint_pos_desired_path = pathlib.Path("/tmp/joint_pos_desired.csv")
 
+       # Get example state to construct headers
         example_state = robot.get_robot_state()
         csv_fieldnames_1 = []
         for key, value in example_state.items():
@@ -284,31 +285,36 @@ class FrankaVariableImpedanceController(mp.Process):
             else:
                 csv_fieldnames_1.append(key)
 
+        # Write header
         with open(robot_state_path_1, mode='w', newline='') as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=csv_fieldnames_1)
             writer.writeheader()
 
 
+        # Define the headers
         csv_fieldnames_2 = (
-            [f"ee_pose_{i}" for i in range(6)] +
-            [f"joint_pos_{i}" for i in range(7)] +
-            [f"joint_vel_{i}" for i in range(7)]
+            ["timestamp"] +
+            [f"commanded_ee_pose_{i}" for i in range(6)] +
+            [f"actual_ee_pose_{i}" for i in range(6)] +
+            [f"actual_joint_pos_{i}" for i in range(7)] +
+            [f"actual_joint_vel_{i}" for i in range(7)]
         )
 
+        # Write header once
         with open(robot_state_path_2, mode='w', newline='') as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=csv_fieldnames_2)
             writer.writeheader()
 
         csv_fieldnames_3 = [f"joint_pos_desired_{i}" for i in range(7)]
 
+        # Write header once
         with open(joint_pos_desired_path, mode='w', newline='') as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=csv_fieldnames_3)
             writer.writeheader()
         
-
         try:
             if self.verbose:
-                print(f"[FrankaVariableImpedanceController] Connect to robot: {self.robot_ip}")
+                print(f"[FrankaPositionalController] Connect to robot: {self.robot_ip}")
             
             # init pose
             if self.joints_init is not None:
@@ -320,7 +326,7 @@ class FrankaVariableImpedanceController(mp.Process):
             # main loop
             dt = 1. / self.frequency
             curr_pose = robot.get_ee_pose()
-            target_stiffness = None
+            # target_stiffness = None
 
             # use monotonic time to make sure the control loop never go backward
             curr_t = time.monotonic()
@@ -369,7 +375,7 @@ class FrankaVariableImpedanceController(mp.Process):
                 if target_stiffness is not None:
                     rot_stiffness = np.array([30.0, 30.0, 30.0], dtype=np.float64)
                     total_stiffness = np.concatenate([target_stiffness, rot_stiffness])          # (6,)
-                    total_damping   = 2.0 * 0.707 * np.sqrt(total_stiffness)  # (6,)
+                    total_damping = 2.0 * 0.707 * np.sqrt(total_stiffness)                       # (6,)
                     robot.update_impedance_gains(total_stiffness, total_damping)
 
                 # send command to robot

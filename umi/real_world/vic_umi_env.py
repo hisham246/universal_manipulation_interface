@@ -5,8 +5,8 @@ import shutil
 import math
 import cv2
 from multiprocessing.managers import SharedMemoryManager
-# from umi.real_world.franka_variable_impedance_controller import FrankaVariableImpedanceController
-from umi.real_world.franka_interpolation_controller import FrankaInterpolationController
+from umi.real_world.franka_variable_impedance_controller import FrankaVariableImpedanceController
+# from umi.real_world.franka_interpolation_controller import FrankaInterpolationController
 
 # from umi.real_world.franka_hand_controller import FrankaHandController
 from umi.real_world.multi_uvc_camera import MultiUvcCamera, VideoRecorder
@@ -210,18 +210,29 @@ class VicUmiEnv:
 
         self.replay_buffer = replay_buffer
         self.episode_id_counter = self.replay_buffer.n_episodes
-        
-        robot = FrankaInterpolationController(
+
+        robot = FrankaVariableImpedanceController(
             shm_manager=shm_manager,
-            robot_ip=robot_ip,
             frequency=1000,
-            Kx_scale=1.0,
-            Kxd_scale=np.array([2.0,1.5,2.0,1.0,1.0,1.0]),
             verbose=False,
             receive_latency=robot_obs_latency,
             output_dir=output_dir,
             episode_id=self.episode_id_counter,
+            max_pos_speed=self.max_pos_speed,
+            max_rot_speed=self.max_rot_speed
         )
+        
+        # robot = FrankaInterpolationController(
+        #     shm_manager=shm_manager,
+        #     robot_ip=robot_ip,
+        #     frequency=1000,
+        #     Kx_scale=1.0,
+        #     Kxd_scale=np.array([2.0,1.5,2.0,1.0,1.0,1.0]),
+        #     verbose=False,
+        #     receive_latency=robot_obs_latency,
+        #     output_dir=output_dir,
+        #     episode_id=self.episode_id_counter,
+        # )
         
         # gripper = FrankaHandController(
         #     host=gripper_ip,
@@ -518,7 +529,7 @@ class VicUmiEnv:
             # g_actions = new_actions[i, 6:]
             # g_actions = new_actions[i, 9:]
 
-            # Kx_trans = new_actions[i, 6:9]
+            Kx_trans = new_actions[i, 6:9]
             # Kx = np.concatenate([Kx_trans, Kx_rot])
             
             # Damping gains
@@ -529,6 +540,7 @@ class VicUmiEnv:
 
             self.robot.schedule_waypoint(
                 pose=r_actions,
+                stiffness=Kx_trans,
                 target_time=new_timestamps[i]-r_latency
             )
             # self.gripper.schedule_waypoint(

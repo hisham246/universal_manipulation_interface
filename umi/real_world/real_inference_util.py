@@ -226,7 +226,9 @@ def get_real_umi_action(
 
     # n_robots = int(action.shape[-1] // 16)
     # n_robots = int(action.shape[-1] // 10)
-    n_robots = int(action.shape[-1] // 9)
+    # n_robots = int(action.shape[-1] // 9)
+    n_robots = int(action.shape[-1] // 15)
+
     env_action = list()
     for robot_idx in range(n_robots):
         # convert pose to mat
@@ -235,15 +237,15 @@ def get_real_umi_action(
             env_obs[f'robot{robot_idx}_eef_rot_axis_angle'][-1]
         ], axis=-1))
 
-        # start = robot_idx * 16
-        # action_pose10d = action[..., start:start+9]
-        # action_chol = action[..., start+9:start+15]
+        start = robot_idx * 15
+        action_pose10d = action[..., start:start+9]
+        action_chol = action[..., start+9:start+15]
         # action_grip = action[..., start+15:start+16]
 
         # start = robot_idx * 10
-        start = robot_idx * 9
+        # start = robot_idx * 9
         # action_grip = action[..., start+9:start+10]
-        action_pose10d = action[..., start:start+9]
+        # action_pose10d = action[..., start:start+9]
 
         action_pose_mat = pose10d_to_mat(action_pose10d)
 
@@ -258,10 +260,10 @@ def get_real_umi_action(
         action_pose = mat_to_pose(action_mat)
 
         # Convert action to stiffness
-        # action_stiffness = chol_to_stiffness(action_chol)
+        action_stiffness = chol_to_stiffness(action_chol)
 
         env_action.append(action_pose)
-        # env_action.append(action_stiffness)
+        env_action.append(action_stiffness)
         # env_action.append(action_grip)
 
     act = np.concatenate(env_action, axis=-1)
