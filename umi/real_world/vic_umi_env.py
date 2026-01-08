@@ -62,8 +62,8 @@ class VicUmiEnv:
             robot_obs_horizon=2,
             # gripper_obs_horizon=2,
             # action
-            max_pos_speed=1.5,
-            max_rot_speed=1.5,
+            # max_pos_speed=1.5,
+            # max_rot_speed=1.5,
             multi_cam_vis_resolution=(960, 960),
             # shared memory
             shm_manager=None,
@@ -213,13 +213,16 @@ class VicUmiEnv:
 
         robot = FrankaVariableImpedanceController(
             shm_manager=shm_manager,
+            robot_ip=robot_ip,
             frequency=1000,
+            Kx_scale=1.0,
+            Kxd_scale=np.array([2.0,1.5,2.0,1.0,1.0,1.0]),
             verbose=False,
             receive_latency=robot_obs_latency,
             output_dir=output_dir,
             episode_id=self.episode_id_counter,
-            max_pos_speed=self.max_pos_speed,
-            max_rot_speed=self.max_rot_speed
+            # max_pos_speed=self.max_pos_speed,
+            # max_rot_speed=self.max_rot_speed
         )
         
         # robot = FrankaInterpolationController(
@@ -258,8 +261,8 @@ class VicUmiEnv:
         # self.gripper = gripper
         self.frequency = frequency
         self.max_obs_buffer_size = max_obs_buffer_size
-        self.max_pos_speed = max_pos_speed
-        self.max_rot_speed = max_rot_speed
+        # self.max_pos_speed = max_pos_speed
+        # self.max_rot_speed = max_rot_speed
         self.mirror_crop = mirror_crop
         # timing
         self.align_camera_idx = align_camera_idx

@@ -450,7 +450,7 @@ def actor_control_umi_thread(
 @click.option('--match_dataset', '-m', default=None, help='Dataset used to overlay and adjust initial condition')
 @click.option('--match_camera', '-mc', default=0, type=int)
 @click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
-@click.option('--steps_per_inference', '-si', default=4, type=int, help="Action horizon for inference.")
+@click.option('--steps_per_inference', '-si', default=5, type=int, help="Action horizon for inference.")
 @click.option('--max_duration', '-md', default=360, help='Max duration for each epoch in seconds.')
 @click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
 @click.option('-nm', '--no_mirror', is_flag=True, default=False)
@@ -468,8 +468,7 @@ def main(
 ):
 
     # Diffusion UNet ckpt
-    # ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/reaching_ball_multimodal_16.ckpt'
-    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/peg_in_hole_8_actions.ckpt'
+    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/peg_in_hole_vic_8_actions.ckpt'
 
     payload = torch.load(open(ckpt_path, 'rb'), map_location='cpu', pickle_module=dill)
     cfg = payload['cfg']
@@ -516,8 +515,8 @@ def main(
                 fisheye_converter=fisheye_converter,
                 mirror_crop=mirror_crop,
                 mirror_swap=mirror_swap,
-                max_pos_speed=1.5,
-                max_rot_speed=1.5,
+                # max_pos_speed=1.5,
+                # max_rot_speed=1.5,
                 shm_manager=shm_manager,
                 # enable_gripper=False,
             ) as env:
@@ -651,7 +650,7 @@ def main(
                         kwargs={
                             'rtc_schedule': rtc_schedule,
                             'rtc_max_guidance': rtc_max_guidance,
-                            'debug': True
+                            'debug': False
                         },
                         daemon=True
                     )

@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-file_path = "/home/hisham246/uwaterloo/testing_peg_in_hole_vanilla/robot_state_2_episode_3.csv"
+file_path = "/home/hisham246/uwaterloo/test_peg_in_hole_variable_impedance/robot_state_2_episode_7.csv"
 # file_path_time = "/home/hisham246/uwaterloo/test_reaching_rtc/robot_state_1_episode_1.csv"
 
 action = pd.read_csv(file_path)
@@ -19,14 +19,14 @@ state = state.dropna()
 
 # Time (shifted to start at 0)
 time = action['timestamp'].to_numpy()
-time = time[520:]
+# time = time[520:]
 time = time - time[0]
 
 # Commanded positions
 cmd_pos = action[['commanded_ee_pose_0', 'commanded_ee_pose_1', 'commanded_ee_pose_2']].to_numpy()
-cmd_pos = cmd_pos[520:]
+# cmd_pos = cmd_pos[520:]
 act_pos = state[['actual_ee_pose_0', 'actual_ee_pose_1', 'actual_ee_pose_2']].to_numpy()
-act_pos = act_pos[520:]
+# act_pos = act_pos[520:]
 
 
 # Velocity with fixed dt
