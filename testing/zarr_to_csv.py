@@ -7,8 +7,8 @@ import os
 register_codecs()
 
 # Open the zarr dataset
-zarr_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/peg_in_hole_umi_with_vicon.zarr.zip"
-csv_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/slam/"
+zarr_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/peg_in_hole_umi_with_vicon_segmented_2.zarr.zip"
+csv_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/slam_segmented/"
 os.makedirs(csv_path, exist_ok=True)
 root = zarr.open(zarr_path)
 print(root.tree()) 

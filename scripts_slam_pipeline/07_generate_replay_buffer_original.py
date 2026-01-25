@@ -121,10 +121,13 @@ def main(input, output, out_res, out_fov, compression_level,
                 episode_data[robot_name + '_demo_start_pose'] = demo_start_pose
                 episode_data[robot_name + '_demo_end_pose'] = demo_end_pose
             
+            
+            episode_data['timestamp'] = plan_episode['episode_timestamps'].astype(np.float64)
             out_replay_buffer.add_episode(data=episode_data, compressors=None)
             
             # aggregate video gen aguments
             n_frames = None
+
             for cam_id, camera in enumerate(cameras):
                 video_path_rel = camera['video_path']
                 video_path = demos_path.joinpath(video_path_rel).absolute()

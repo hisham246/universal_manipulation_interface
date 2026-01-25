@@ -98,6 +98,7 @@ def main(input, output, out_res, out_fov, compression_level,
     # === MODIFICATION START ===
     # Track which demos/episodes actually got added (kept) in the output.
     used_demos = []
+    would_have_been_dropped = []   # episodes that previously hit `continue`
     # === MODIFICATION END ===
 
     for ipath in input:
@@ -149,6 +150,10 @@ def main(input, output, out_res, out_fov, compression_level,
 
             episode_data["timestamp"] = plan_episode["episode_timestamps"].astype(np.float64)
 
+            # build the label early (so we can print it even if it would have been dropped)
+            default_name = f"{ipath.name}/episode_{ep_idx:06d}"
+            demo_name = _get_demo_name(plan_episode, default_name)
+
             # 1) Find the earliest index where any gripper exceeds the threshold
             found_trigger = False
             current_len = len(episode_data["timestamp"])
@@ -157,9 +162,9 @@ def main(input, output, out_res, out_fov, compression_level,
             for key, val in episode_data.items():
                 if "gripper_width" in key:
                     w = val.flatten()
-                    trigger_indices = np.where(w >= 0.005)[0]
-                    if len(trigger_indices) > 0:
-                        first_idx = trigger_indices[0]
+                    trigger_indices = np.where(w >= 0.0075)[0]
+                    if trigger_indices.size > 0:
+                        first_idx = int(trigger_indices[0])
                         if first_idx < min_cutoff:
                             min_cutoff = first_idx
                             found_trigger = True
@@ -167,17 +172,50 @@ def main(input, output, out_res, out_fov, compression_level,
             # 2) Slice the data if a trigger was found
             if found_trigger:
                 if min_cutoff == 0:
-                    # If the gripper opens at frame 0, skip the episode entirely
-                    continue
-                for k in episode_data:
-                    episode_data[k] = episode_data[k][:min_cutoff]
+                    # previously: would drop the episode
+                    # now: keep unchanged, but print its label
+                    print(f"[would-drop but keeping unchanged] {demo_name} (trigger at frame 0)")
+                    would_have_been_dropped.append(demo_name)
 
-            # === MODIFICATION START ===
-            # Only record the demo name if we are actually keeping this episode.
-            default_name = f"{ipath.name}/episode_{ep_idx:06d}"
-            demo_name = _get_demo_name(plan_episode, default_name)
+                    # do NOT slice; keep episode_data as-is
+                    found_trigger = False
+                else:
+                    # slice all arrays up to min_cutoff (exclude the trigger frame)
+                    for k in episode_data:
+                        episode_data[k] = episode_data[k][:min_cutoff]
+
+            # record kept demo name (always kept now)
             used_demos.append(demo_name)
-            # === MODIFICATION END ===
+
+            # # 1) Find the earliest index where any gripper exceeds the threshold
+            # found_trigger = False
+            # current_len = len(episode_data["timestamp"])
+            # min_cutoff = current_len
+
+            # for key, val in episode_data.items():
+            #     if "gripper_width" in key:
+            #         w = val.flatten()
+            #         trigger_indices = np.where(w >= 0.005)[0]
+            #         if len(trigger_indices) > 0:
+            #             first_idx = trigger_indices[0]
+            #             if first_idx < min_cutoff:
+            #                 min_cutoff = first_idx
+            #                 found_trigger = True
+
+            # # 2) Slice the data if a trigger was found
+            # if found_trigger:
+            #     if min_cutoff == 0:
+            #         # If the gripper opens at frame 0, skip the episode entirely
+            #         continue
+            #     for k in episode_data:
+            #         episode_data[k] = episode_data[k][:min_cutoff]
+
+            # # === MODIFICATION START ===
+            # # Only record the demo name if we are actually keeping this episode.
+            # default_name = f"{ipath.name}/episode_{ep_idx:06d}"
+            # demo_name = _get_demo_name(plan_episode, default_name)
+            # used_demos.append(demo_name)
+            # # === MODIFICATION END ===
 
             out_replay_buffer.add_episode(data=episode_data, compressors=None)
 
@@ -219,6 +257,11 @@ def main(input, output, out_res, out_fov, compression_level,
     print(f"Kept {len(used_demos)} demos/episodes:")
     for name in used_demos:
         print("  ", name)
+
+    if len(would_have_been_dropped) > 0:
+        print(f"\nEpisodes that would have been dropped (but were kept unchanged): {len(would_have_been_dropped)}")
+        for name in would_have_been_dropped:
+            print("  ", name)
     # === MODIFICATION END ===
 
     # get image size
