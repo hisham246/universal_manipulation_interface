@@ -1,32 +1,48 @@
+import os
+import re
+import glob
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 
-# ----------------------------
-# Quaternion utilities
-# ----------------------------
+# ============================================================
+# Helpers: file sorting / pairing
+# ============================================================
+def natural_key(path):
+    return [int(s) if s.isdigit() else s.lower() for s in re.split(r"(\d+)", os.path.basename(path))]
+
+def extract_index(path):
+    m = re.search(r"(\d+)", os.path.basename(path))
+    return int(m.group(1)) if m else None
+
+def build_index_map(files):
+    mp = {}
+    for f in files:
+        idx = extract_index(f)
+        if idx is None:
+            continue
+        mp[idx] = f
+    return mp
+
+# ============================================================
+# Quaternion utilities (same as yours)
+# ============================================================
 def quat_normalize(q):
     q = np.asarray(q, dtype=np.float64)
     n = np.linalg.norm(q, axis=-1, keepdims=True) + 1e-12
     return q / n
 
 def quat_slerp(q0, q1, u):
-    """
-    Slerp between unit quaternions q0, q1 (shape (4,)), u in [0,1].
-    Returns shape (4,).
-    """
     q0 = quat_normalize(q0)
     q1 = quat_normalize(q1)
 
     dot = np.dot(q0, q1)
-    # Avoid long-path
     if dot < 0.0:
         q1 = -q1
         dot = -dot
-
     dot = np.clip(dot, -1.0, 1.0)
 
     if dot > 0.9995:
-        # Nearly linear
         q = q0 + u * (q1 - q0)
         return quat_normalize(q)
 
@@ -35,106 +51,103 @@ def quat_slerp(q0, q1, u):
     s1 = np.sin(u * theta) / (np.sin(theta) + 1e-12)
     return s0 * q0 + s1 * q1
 
-def quat_to_rotmat(q):
-    # q = [x,y,z,w]
-    x, y, z, w = q
-    xx, yy, zz = x*x, y*y, z*z
-    xy, xz, yz = x*y, x*z, y*z
-    wx, wy, wz = w*x, w*y, w*z
-    return np.array([
-        [1 - 2*(yy + zz), 2*(xy - wz),     2*(xz + wy)],
-        [2*(xy + wz),     1 - 2*(xx + zz), 2*(yz - wx)],
-        [2*(xz - wy),     2*(yz + wx),     1 - 2*(xx + yy)]
-    ], dtype=np.float64)
+# ============================================================
+# Vicon reader (same as yours)
+# ============================================================
+def robust_speed(t, p):
+    dt = np.diff(t)
+    v = np.diff(p, axis=0) / dt[:, None]
+    s = np.linalg.norm(v, axis=1)
+    ts = 0.5 * (t[:-1] + t[1:])
+    return ts, s
 
-def rotmat_to_axis_angle(R):
-    # Returns axis-angle vector (axis * angle), angle in radians
-    tr = np.trace(R)
-    cos_theta = (tr - 1.0) / 2.0
-    cos_theta = np.clip(cos_theta, -1.0, 1.0)
-    theta = np.arccos(cos_theta)
-    if theta < 1e-8:
-        return np.zeros(3, dtype=np.float64)
-    w = np.array([
-        R[2,1] - R[1,2],
-        R[0,2] - R[2,0],
-        R[1,0] - R[0,1]
-    ], dtype=np.float64) / (2.0 * np.sin(theta) + 1e-12)
-    return w * theta
-
-def apply_T_to_pose(T, p, q_xyzw):
+def find_motion_onset_time(t, p, hold_sec=0.15, thresh_k=6.0):
     """
-    Apply 4x4 transform T to pose (p,q).
-    p in R^3, q in xyzw describing rotation of body in source frame.
-    If T maps source frame -> target frame, then:
-      p' = R_T p + t_T
-      R' = R_T R
+    Returns onset time based on when speed persistently rises above a robust threshold.
+    No smoothing/filtering; uses MAD for a robust threshold.
     """
-    R_T = T[:3,:3]
-    t_T = T[:3, 3]
-    p2 = R_T @ p + t_T
-    R = quat_to_rotmat(q_xyzw)
-    R2 = R_T @ R
-    # Convert R2 back to quaternion by a simple robust method
-    # (you can replace with scipy if you prefer)
-    q2 = rotmat_to_quat_xyzw(R2)
-    return p2, q2
+    ts, s = robust_speed(t, p)
 
-def rotmat_to_quat_xyzw(R):
-    # Robust conversion
-    m00, m01, m02 = R[0]
-    m10, m11, m12 = R[1]
-    m20, m21, m22 = R[2]
-    tr = m00 + m11 + m22
-    if tr > 0:
-        S = np.sqrt(tr + 1.0) * 2
-        w = 0.25 * S
-        x = (m21 - m12) / S
-        y = (m02 - m20) / S
-        z = (m10 - m01) / S
-    elif (m00 > m11) and (m00 > m22):
-        S = np.sqrt(1.0 + m00 - m11 - m22) * 2
-        w = (m21 - m12) / S
-        x = 0.25 * S
-        y = (m01 + m10) / S
-        z = (m02 + m20) / S
-    elif m11 > m22:
-        S = np.sqrt(1.0 + m11 - m00 - m22) * 2
-        w = (m02 - m20) / S
-        x = (m01 + m10) / S
-        y = 0.25 * S
-        z = (m12 + m21) / S
-    else:
-        S = np.sqrt(1.0 + m22 - m00 - m11) * 2
-        w = (m10 - m01) / S
-        x = (m02 + m20) / S
-        y = (m12 + m21) / S
-        z = 0.25 * S
-    q = np.array([x, y, z, w], dtype=np.float64)
-    return quat_normalize(q)
+    med = np.median(s)
+    mad = np.median(np.abs(s - med)) + 1e-12
+    thresh = med + thresh_k * 1.4826 * mad  # robust "std" estimate
 
-# ----------------------------
-# Vicon reader for your CSV format
-# ----------------------------
+    # require speed above threshold for a short continuous duration
+    dt_est = np.median(np.diff(ts)) if len(ts) > 1 else 1e-2
+    hold_n = max(1, int(round(hold_sec / dt_est)))
+
+    above = s > thresh
+    # find first index where we have hold_n consecutive Trues
+    run = 0
+    for i, a in enumerate(above):
+        run = run + 1 if a else 0
+        if run >= hold_n:
+            onset_idx = i - hold_n + 1
+            return float(ts[onset_idx])
+
+    # fallback: if we never exceed, just return start
+    return float(ts[0]) if len(ts) else float(t[0])
+
+def plot_raw_translation_2d_and_time(idx, t_s, p_s, t_v, p_v, slam_name="", vicon_name=""):
+    """
+    Raw comparison only:
+      - No alignment
+      - No trimming
+      - No resampling
+      - Only unit conversion (Vicon mm->m already done in read_vicon_csv)
+    Produces:
+      (1) XY trajectory overlay
+      (2) X/Y/Z vs time (separate subplots)
+    """
+
+    # --- 2D XY overlay (top-down) ---
+    plt.figure(figsize=(8, 7))
+    plt.plot(p_s[:, 0], p_s[:, 1], label="SLAM XY (raw)", linewidth=2)
+    plt.plot(p_v[:, 0], p_v[:, 1], label="Vicon XY (raw)", linewidth=1)
+    plt.scatter(p_s[0, 0], p_s[0, 1], s=40, label="SLAM start", marker="o")
+    plt.scatter(p_v[0, 0], p_v[0, 1], s=40, label="Vicon start", marker="x")
+    plt.title(f"[{idx}] Raw XY overlay (no alignment)\n{slam_name}\n{vicon_name}")
+    plt.xlabel("X (m)")
+    plt.ylabel("Y (m)")
+    plt.axis("equal")
+    plt.grid(True)
+    plt.legend()
+
+    # --- XYZ vs time ---
+    fig, axs = plt.subplots(3, 1, sharex=False, figsize=(12, 8))
+
+    labels = ["X", "Y", "Z"]
+    for i in range(3):
+        axs[i].plot(t_s, p_s[:, i], label=f"SLAM {labels[i]} (raw)", linewidth=2)
+        axs[i].plot(t_v, p_v[:, i], label=f"Vicon {labels[i]} (raw)", linewidth=1)
+        axs[i].set_ylabel(f"{labels[i]} (m)")
+        axs[i].grid(True)
+        axs[i].legend()
+
+    axs[0].set_title(f"[{idx}] Raw translation vs time (no alignment)")
+    axs[-1].set_xlabel("time (s)")
+
+    plt.tight_layout()
+    plt.show()
+
+
 def read_vicon_csv(path):
     lines = open(path, "r", encoding="utf-8", errors="ignore").read().splitlines()
-    # Find the header line that starts with "Frame,Sub Frame"
+
     header_idx = None
     for i, ln in enumerate(lines):
         if ln.strip().startswith("Frame,Sub Frame"):
             header_idx = i
             break
     if header_idx is None:
-        raise ValueError("Could not find Vicon header line 'Frame,Sub Frame,...'")
+        raise ValueError(f"Could not find Vicon header line 'Frame,Sub Frame,...' in {path}")
 
     df = pd.read_csv(path, skiprows=header_idx)
-    # First row after header is usually units (mm, mm, ...)
+
     for c in df.columns:
         df[c] = pd.to_numeric(df[c], errors="coerce")
     df = df.dropna(subset=["Frame", "TX", "TY", "TZ", "RW", "RX", "RY", "RZ"]).reset_index(drop=True)
 
-    # Infer Vicon fps: in your file it’s the second line "100"
-    # If missing, assume 100
     fps = 100.0
     for ln in lines[:5]:
         ln2 = ln.strip().strip(",")
@@ -143,62 +156,55 @@ def read_vicon_csv(path):
             break
 
     t = (df["Frame"].to_numpy() - df["Frame"].iloc[0]) / fps
-    p = df[["TX","TY","TZ"]].to_numpy() / 1000.0  # mm -> m
-    q = df[["RX","RY","RZ","RW"]].to_numpy()       # xyzw
+    p = df[["TX", "TY", "TZ"]].to_numpy() / 1000.0  # mm -> m
+    q = df[["RX", "RY", "RZ", "RW"]].to_numpy()      # xyzw
     q = quat_normalize(q)
+    return t, p, q, fps, df, lines, header_idx
 
-    return t, p, q, fps
-
-# ----------------------------
-# Matching + resampling
-# ----------------------------
+# ============================================================
+# Matching + resampling (same logic as yours)
+# ============================================================
 def speed_signature(t, p):
     dt = np.diff(t)
-    v = np.diff(p, axis=0) / dt[:,None]
+    v = np.diff(p, axis=0) / dt[:, None]
     s = np.linalg.norm(v, axis=1)
-    # center timestamps for speed samples
     ts = 0.5 * (t[:-1] + t[1:])
     return ts, s
 
 def find_best_vicon_window(t_v, p_v, t_s, p_s, fps_v):
-    # Build speed signatures
     tsv, sv = speed_signature(t_v, p_v)
     tss, ss = speed_signature(t_s, p_s)
 
-    # Interpolate SLAM speed onto a 100 Hz grid to compare apples-to-apples
-    t_grid = np.arange(0.0, t_s[-1], 1.0/fps_v)
+    t_grid = np.arange(0.0, t_s[-1], 1.0 / fps_v)
     ss_100 = np.interp(t_grid, tss, ss)
 
-    # Z-normalize
-    a = (ss_100 - ss_100.mean()) / (ss_100.std() + 1e-12)   # length N
-    b = (sv - sv.mean()) / (sv.std() + 1e-12)               # length M
+    a = (ss_100 - ss_100.mean()) / (ss_100.std() + 1e-12)
+    b = (sv - sv.mean()) / (sv.std() + 1e-12)
 
     N = len(a)
     if len(b) < N:
         raise ValueError("Vicon signal shorter than SLAM; cannot match.")
 
-    # Correlate (valid windows only)
     corr = np.correlate(b, a, mode="valid")
     k = int(np.argmax(corr))
     score = float(corr[k] / N)
 
-    # Map speed-index k to a start time. sv is between positions, so use tsv[k]
     t0 = float(tsv[k])
-    t1 = t0 + float(t_s[-1])  # target duration
-
+    t1 = t0 + float(t_s[-1])
     return t0, t1, score
 
 def resample_vicon_to_slam(t_v, p_v, q_v, t0, t_slam):
-    """
-    Extract vicon segment starting at t0 and resample onto t_slam (relative to its own 0).
-    """
     t_query = t0 + t_slam
 
-    # Position interp
-    p_out = np.vstack([np.interp(t_query, t_v, p_v[:,d]) for d in range(3)]).T
+    # position interp (meters)
+    p_out = np.vstack([np.interp(t_query, t_v, p_v[:, d]) for d in range(3)]).T
+    # position interp (meters) with clamping
+    # p_out = np.vstack([
+    #     np.interp(t_query, t_v, p_v[:, d], left=p_v[0, d], right=p_v[-1, d])
+    #     for d in range(3)
+    # ]).T
 
-    # Quaternion slerp
-    # For each query time, find the bracketing indices
+    # quaternion slerp
     q_out = np.zeros((len(t_query), 4), dtype=np.float64)
     for i, tq in enumerate(t_query):
         j = np.searchsorted(t_v, tq)
@@ -207,22 +213,19 @@ def resample_vicon_to_slam(t_v, p_v, q_v, t0, t_slam):
         elif j >= len(t_v):
             q_out[i] = q_v[-1]
         else:
-            tL, tR = t_v[j-1], t_v[j]
+            tL, tR = t_v[j - 1], t_v[j]
             u = 0.0 if (tR - tL) < 1e-12 else (tq - tL) / (tR - tL)
-            q_out[i] = quat_slerp(q_v[j-1], q_v[j], float(u))
+            q_out[i] = quat_slerp(q_v[j - 1], q_v[j], float(u))
     q_out = quat_normalize(q_out)
-    return p_out, q_out
+    return p_out, q_out, t_query
 
-import matplotlib.pyplot as plt
-
+# ============================================================
+# Plot helpers (same as yours, but packaged)
+# ============================================================
 def interp_pos(t_src, p_src, t_query):
     return np.vstack([np.interp(t_query, t_src, p_src[:, d]) for d in range(3)]).T
 
 def speed_on_grid(t, p, t_grid):
-    """
-    Compute speed on a given time grid by interpolating position to grid then differencing.
-    Returns t_mid (len-1) and speed (len-1).
-    """
     p_g = interp_pos(t, p, t_grid)
     dt = np.diff(t_grid)
     v = np.diff(p_g, axis=0) / dt[:, None]
@@ -230,88 +233,346 @@ def speed_on_grid(t, p, t_grid):
     t_mid = 0.5 * (t_grid[:-1] + t_grid[1:])
     return t_mid, s
 
+# ============================================================
+# Writer: save new Vicon CSV in ORIGINAL FORMAT (XYZ + QUAT)
+# - Keep header/preamble lines exactly
+# - Keep columns: Frame,Sub Frame,TX,TY,TZ,RX,RY,RZ,RW
+# - Units: TX/TY/TZ in mm (as original), quats same
+# ============================================================
+def write_vicon_like_original(out_path, original_lines, header_idx, new_df):
+    """
+    original_lines: list of lines from the original file
+    header_idx: line index where "Frame,Sub Frame,..." starts
+    new_df: dataframe containing numeric columns with same names as original
+    """
+    # Keep preamble (everything before header line)
+    preamble = original_lines[:header_idx]
+
+    # Write preamble + header + data using CSV formatting
+    with open(out_path, "w", encoding="utf-8") as f:
+        for ln in preamble:
+            f.write(ln.rstrip("\n") + "\n")
+
+        # Header line (exactly as in original file)
+        f.write(",".join(new_df.columns) + "\n")
+
+        # Data rows
+        # Preserve typical Vicon formatting: Frame/Sub Frame as ints, the rest as floats
+        for _, row in new_df.iterrows():
+            vals = []
+            for c in new_df.columns:
+                v = row[c]
+                if c in ["Frame", "Sub Frame"]:
+                    vals.append(str(int(round(v))))
+                else:
+                    # Enough precision; adjust if you want
+                    vals.append(f"{float(v):.10f}".rstrip("0").rstrip("."))
+            f.write(",".join(vals) + "\n")
+
+def find_best_vicon_window_early(t_v, p_v, t_s, p_s, fps_v, max_start_sec=2.0):
+    tsv, sv = speed_signature(t_v, p_v)
+    tss, ss = speed_signature(t_s, p_s)
+
+    t_grid = np.arange(0.0, t_s[-1], 1.0 / fps_v)
+    ss_100 = np.interp(t_grid, tss, ss)
+    a = (ss_100 - ss_100.mean()) / (ss_100.std() + 1e-12)
+
+    b = (sv - sv.mean()) / (sv.std() + 1e-12)
+
+    N = len(a)
+    if len(b) < N:
+        raise ValueError("Vicon signal shorter than SLAM; cannot match.")
+
+    corr = np.correlate(b, a, mode="valid")
+
+    # only allow offsets whose start time is within the first max_start_sec
+    valid_k = []
+    for k in range(len(corr)):
+        t0 = float(tsv[k])
+        if t0 <= float(tsv[0]) + max_start_sec:
+            valid_k.append(k)
+
+    if not valid_k:
+        raise ValueError("No valid early offsets found.")
+
+    k_best = max(valid_k, key=lambda k: corr[k])
+    score = float(corr[k_best] / N)
+    t0 = float(tsv[k_best])
+    t1 = t0 + float(t_s[-1])
+    return t0, t1, score
+
+# ============================================================
+# Main loop over all files
+# ============================================================
 if __name__ == "__main__":
-    slam_csv = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/slam_segmented/episode_200.csv"
-    vicon_csv = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/vicon_quat_trimmed/peg_umi_quat 200.csv"
+    slam_dir = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/slam_segmented"
+    vicon_dir = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/vicon_quat_trimmed"
+    out_dir  = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/vicon_quat_resampled_to_slam_2"
+    os.makedirs(out_dir, exist_ok=True)
 
-    slam = pd.read_csv(slam_csv)
-    t_s = slam["timestamp"].to_numpy()
-    t_s = t_s - t_s[0]
-    p_s = slam[["robot0_eef_pos_0","robot0_eef_pos_1","robot0_eef_pos_2"]].to_numpy()
+    slam_files = sorted(glob.glob(os.path.join(slam_dir, "*.csv")), key=natural_key)
+    vicon_files = sorted(glob.glob(os.path.join(vicon_dir, "*.csv")), key=natural_key)
 
-    t_v, p_v, q_v, fps_v = read_vicon_csv(vicon_csv)
+    slam_map = build_index_map(slam_files)
+    vicon_map = build_index_map(vicon_files)
 
-    # Find best match window using your speed-correlation method
-    t0, t1, score = find_best_vicon_window(t_v, p_v, t_s, p_s, fps_v)
-    print(f"Best Vicon window start t0={t0:.3f}s, duration={t_s[-1]:.3f}s, corr={score:.3f}")
+    common_idxs = sorted(set(slam_map.keys()) & set(vicon_map.keys()))
+    missing_slam = sorted(set(vicon_map.keys()) - set(slam_map.keys()))
+    missing_vicon = sorted(set(slam_map.keys()) - set(vicon_map.keys()))
 
-    # Resample Vicon to SLAM timestamps (for position overlay)
-    p60, q60 = resample_vicon_to_slam(t_v, p_v, q_v, t0, t_s)
+    print(f"Found {len(common_idxs)} paired episodes.")
+    if missing_slam:
+        print(f"Warning: missing SLAM for indices: {missing_slam[:20]}{'...' if len(missing_slam)>20 else ''}")
+    if missing_vicon:
+        print(f"Warning: missing Vicon for indices: {missing_vicon[:20]}{'...' if len(missing_vicon)>20 else ''}")
 
-    # ----------------------------
-    # 1) Overlay speed signatures (the thing you matched on)
-    # ----------------------------
-    # Build a Vicon-rate grid for the SLAM interval and for the matched Vicon window
-    dur = float(t_s[-1])
-    dtv = 1.0 / fps_v
+    # for idx in common_idxs:
+    #     slam_csv = slam_map[idx]
+    #     vicon_csv = vicon_map[idx]
 
-    t_grid_slam = np.arange(0.0, dur, dtv)                  # 0..dur at 100 Hz
-    t_grid_vwin = t0 + t_grid_slam                          # align to Vicon absolute time
+    #     # Load SLAM
+    #     slam = pd.read_csv(slam_csv)
+    #     if "timestamp" not in slam.columns:
+    #         print(f"[{idx}] Skip: no timestamp in {slam_csv}")
+    #         continue
 
-    # Speed on same grid (apples-to-apples)
-    t_mid_s, s_s = speed_on_grid(t_s, p_s, t_grid_slam)
-    t_mid_v, s_v = speed_on_grid(t_v, p_v, t_grid_vwin)
+    #     t_s = slam["timestamp"].to_numpy()
+    #     t_s = t_s - t_s[0]
 
-    # Optional normalization for visual comparison
-    s_s_n = (s_s - s_s.mean()) / (s_s.std() + 1e-12)
-    s_v_n = (s_v - s_v.mean()) / (s_v.std() + 1e-12)
+    #     pos_cols = ["robot0_eef_pos_0", "robot0_eef_pos_1", "robot0_eef_pos_2"]
+    #     if not all(c in slam.columns for c in pos_cols):
+    #         print(f"[{idx}] Skip: missing SLAM pos cols in {slam_csv}")
+    #         continue
+    #     p_s = slam[pos_cols].to_numpy()
 
-    plt.figure()
-    plt.plot(t_mid_s, s_s_n, label="SLAM speed (norm)")
-    plt.plot(t_mid_s, s_v_n, label="Vicon-window speed (norm)")
-    plt.title("Speed signature overlay (normalized)")
-    plt.xlabel("time (s) (SLAM-relative)")
-    plt.ylabel("normalized speed")
-    plt.legend()
-    plt.grid(True)
+    #     # Load Vicon
+    #     t_v, p_v, q_v, fps_v, vicon_df, vicon_lines, header_idx = read_vicon_csv(vicon_csv)
 
-    plt.figure()
-    plt.plot(t_mid_s, s_s, label="SLAM speed")
-    plt.plot(t_mid_s, s_v, label="Vicon-window speed")
-    plt.title("Speed signature overlay (raw)")
-    plt.xlabel("time (s) (SLAM-relative)")
-    plt.ylabel("speed (units depend on position units)")
-    plt.legend()
-    plt.grid(True)
+    #     # Onset-based t0 (preferred)
+    #     t_on_s = find_motion_onset_time(t_s, p_s, hold_sec=0.15, thresh_k=6.0)
+    #     t_on_v = find_motion_onset_time(t_v, p_v, hold_sec=0.15, thresh_k=6.0)
 
-    # ----------------------------
-    # 2) Overlay positions per axis (shape match; offsets are expected)
-    # ----------------------------
-    fig, axs = plt.subplots(3, 1, sharex=True, figsize=(10, 8))
-    labels = ["x", "y", "z"]
-    for i in range(3):
-        axs[i].plot(t_s, p_s[:, i], label=f"SLAM pos {labels[i]}")
-        axs[i].plot(t_s, p60[:, i], label=f"Vicon(resampled) pos {labels[i]}")
-        axs[i].set_ylabel(labels[i])
-        axs[i].grid(True)
-        axs[i].legend()
-    axs[-1].set_xlabel("time (s)")
-    fig.suptitle("Position overlay (no frame alignment)")
+    #     t0 = t_on_v - t_on_s
+    #     dur = float(t_s[-1])
 
-    # ----------------------------
-    # 3) 3D trajectory overlay (shape)
-    # ----------------------------
-    from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+    #     print(f"[{idx}] onset_s={t_on_s:.3f}s onset_v={t_on_v:.3f}s => t0={t0:.3f}s  dur={dur:.3f}s")
 
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection="3d")
-    ax.plot(p_s[:,0], p_s[:,1], p_s[:,2], label="SLAM traj")
-    ax.plot(p60[:,0], p60[:,1], p60[:,2], label="Vicon(resampled) traj")
-    ax.set_title("3D trajectory overlay (no frame alignment)")
-    ax.set_xlabel("x")
-    ax.set_ylabel("y")
-    ax.set_zlabel("z")
-    ax.legend()
+    saved_count = 0
+    skipped = []
 
-    plt.show()
+    for idx in common_idxs:
+        slam_csv = slam_map[idx]
+        vicon_csv = vicon_map[idx]
 
+        slam = pd.read_csv(slam_csv)
+        if "timestamp" not in slam.columns:
+            skipped.append((idx, "no timestamp"))
+            continue
+
+        pos_cols = ["robot0_eef_pos_0","robot0_eef_pos_1","robot0_eef_pos_2"]
+        if not all(c in slam.columns for c in pos_cols):
+            skipped.append((idx, "missing pos cols"))
+            continue
+
+        t_s = slam["timestamp"].to_numpy()
+        t_s = t_s - t_s[0]
+        p_s = slam[pos_cols].to_numpy()
+
+        t_v, p_v, q_v, fps_v, vicon_df, vicon_lines, header_idx = read_vicon_csv(vicon_csv)
+
+        t_on_s = find_motion_onset_time(t_s, p_s)
+        t_on_v = find_motion_onset_time(t_v, p_v)
+        t0 = t_on_v - t_on_s
+
+        eps = 2.0 / fps_v
+        if t0 < 0 and abs(t0) <= eps:
+            t0 = 0.0
+
+        p_rs, q_rs, t_query = resample_vicon_to_slam(t_v, p_v, q_v, t0, t_s)
+
+        # if you want to allow small out-of-range due to eps, use this:
+        if (t_query[0] < t_v[0] - eps) or (t_query[-1] > t_v[-1] + eps):
+            skipped.append((idx, f"window out of range t0={t0:.4f}"))
+            continue
+
+        # build output df
+        frame0 = int(vicon_df["Frame"].iloc[0])
+        sub0 = int(vicon_df["Sub Frame"].iloc[0]) if "Sub Frame" in vicon_df.columns else 0
+        frame_numbers = frame0 + np.round(t_query * fps_v).astype(int)
+
+        new_df = pd.DataFrame({
+            "Frame": frame_numbers,
+            "Sub Frame": np.full_like(frame_numbers, sub0),
+            "TX": p_rs[:, 0] * 1000.0,
+            "TY": p_rs[:, 1] * 1000.0,
+            "TZ": p_rs[:, 2] * 1000.0,
+            "RX": q_rs[:, 0],
+            "RY": q_rs[:, 1],
+            "RZ": q_rs[:, 2],
+            "RW": q_rs[:, 3],
+        })
+
+        out_path = os.path.join(out_dir, os.path.basename(vicon_csv))
+        write_vicon_like_original(out_path, vicon_lines, header_idx, new_df)
+
+        saved_count += 1
+        print(f"[{idx}] Saved: {out_path} (rows={len(new_df)})")
+
+    print(f"Saved {saved_count}/{len(common_idxs)}")
+    if skipped:
+        print("First 20 skipped:")
+        for k, why in skipped[:20]:
+            print(k, why)
+
+
+
+        # # --- RAW PLOTS (before any processing) ---
+        # plot_raw_translation_2d_and_time(
+        #     idx,
+        #     t_s, p_s,
+        #     t_v, p_v,
+        #     slam_name=os.path.basename(slam_csv),
+        #     vicon_name=os.path.basename(vicon_csv),
+        # )
+
+        # # Match window
+        # try:
+        #     t0, t1, score = find_best_vicon_window(t_v, p_v, t_s, p_s, fps_v)
+        # except Exception as e:
+        #     print(f"[{idx}] Match failed: {e}")
+        #     continue
+
+        # print(f"[{idx}] t0={t0:.3f}s dur={t_s[-1]:.3f}s corr={score:.3f}")
+
+        # # Resample Vicon at SLAM timestamps (this guarantees SAME LENGTH)
+        # p_rs, q_rs, t_query = resample_vicon_to_slam(t_v, p_v, q_v, t0, t_s)
+
+        # # Safety: ensure coverage
+        # if t_query[0] < t_v[0] or t_query[-1] > t_v[-1]:
+        #     print(f"[{idx}] Skip: t_query out of Vicon range")
+        #     continue
+
+        # try:
+        #     # primary: onset-based
+        #     t0 = t_on_v - t_on_s
+        #     p_rs, q_rs, t_query = resample_vicon_to_slam(t_v, p_v, q_v, t0, t_s)
+        #     if t_query[0] < t_v[0] or t_query[-1] > t_v[-1]:
+        #         raise ValueError("onset window out of range")
+        #     score = np.nan
+        # except Exception:
+        #     # fallback: early constrained correlation
+        #     t0, t1, score = find_best_vicon_window_early(t_v, p_v, t_s, p_s, fps_v, max_start_sec=2.0)
+        #     p_rs, q_rs, t_query = resample_vicon_to_slam(t_v, p_v, q_v, t0, t_s)
+
+        # # primary: onset-based
+        # t0_onset = float(t_on_v - t_on_s)
+
+        # # if onset suggests a big offset, try early correlation as fallback
+        # if abs(t0_onset) > 1.0:
+        #     t0, t1, score = find_best_vicon_window_early(t_v, p_v, t_s, p_s, fps_v, max_start_sec=0.5)
+        # else:
+        #     t0, score = t0_onset, np.nan
+
+        # p_rs, q_rs, t_query = resample_vicon_to_slam(t_v, p_v, q_v, t0, t_s)
+        # if t_query[0] < t_v[0] or t_query[-1] > t_v[-1]:
+        #     print(f"[{idx}] Skip: window out of range (t0={t0:.3f})")
+        #     continue
+
+        # # Resample Vicon at SLAM timestamps using onset-based t0
+        # p_rs, q_rs, t_query = resample_vicon_to_slam(t_v, p_v, q_v, t0, t_s)
+
+        # # enforce window coverage: anything outside Vicon range is invalid
+        # if t_query[0] < t_v[0] or t_query[-1] > t_v[-1]:
+        #     print(f"[{idx}] Skip: onset-based window out of Vicon range")
+        #     continue
+
+
+        # # =========================
+        # # PLOTS (block until you close them)
+        # # =========================
+        # dur = float(t_s[-1])
+        # dtv = 1.0 / fps_v
+        # t_grid_slam = np.arange(0.0, dur, dtv)
+        # t_grid_vwin = t0 + t_grid_slam
+
+        # t_mid_s, s_s = speed_on_grid(t_s, p_s, t_grid_slam)
+        # t_mid_v, s_v = speed_on_grid(t_v, p_v, t_grid_vwin)
+
+        # s_s_n = (s_s - s_s.mean()) / (s_s.std() + 1e-12)
+        # s_v_n = (s_v - s_v.mean()) / (s_v.std() + 1e-12)
+
+        # plt.figure()
+        # plt.plot(t_mid_s, s_s_n, label="SLAM speed (norm)")
+        # plt.plot(t_mid_s, s_v_n, label="Vicon-window speed (norm)")
+        # plt.title(f"[{idx}] Speed overlay (normalized)")
+        # plt.xlabel("time (s) (SLAM-relative)")
+        # plt.ylabel("normalized speed")
+        # plt.legend()
+        # plt.grid(True)
+
+        # fig, axs = plt.subplots(3, 1, sharex=True, figsize=(10, 8))
+        # labels = ["x", "y", "z"]
+        # for i in range(3):
+        #     axs[i].plot(t_s, p_s[:, i], label=f"SLAM pos {labels[i]}")
+        #     axs[i].plot(t_s, p_rs[:, i], label=f"Vicon(resampled) pos {labels[i]}")
+        #     axs[i].set_ylabel(labels[i])
+        #     axs[i].grid(True)
+        #     axs[i].legend()
+        # axs[-1].set_xlabel("time (s)")
+        # fig.suptitle(f"[{idx}] Position overlay (no frame alignment)")
+
+        # fig = plt.figure()
+        # ax = fig.add_subplot(111, projection="3d")
+        # ax.plot(p_s[:, 0], p_s[:, 1], p_s[:, 2], label="SLAM traj")
+        # ax.plot(p_rs[:, 0], p_rs[:, 1], p_rs[:, 2], label="Vicon(resampled) traj")
+        # ax.set_title(f"[{idx}] 3D overlay (no frame alignment)")
+        # ax.set_xlabel("x")
+        # ax.set_ylabel("y")
+        # ax.set_zlabel("z")
+        # ax.legend()
+
+        # plt.show()  # <-- when you close plots, we proceed to saving
+
+        # =========================
+        # SAVE: new Vicon CSV in original format (Frame/SubFrame + TX/TY/TZ + RX/RY/RZ/RW)
+        # Keep same number of rows as SLAM (exact)
+        # =========================
+        out_path = os.path.join(out_dir, os.path.basename(vicon_csv))
+
+        # Build new dataframe with the same columns order as original Vicon file
+        # Use the original first Frame/Sub Frame as a base and create a new frame sequence.
+        cols = list(vicon_df.columns)
+
+        # If original contains extra columns, you can keep them, but you asked xyz+quat,
+        # so we will only keep the standard ones if present.
+        keep_cols = [c for c in cols if c in ["Frame", "Sub Frame", "TX", "TY", "TZ", "RX", "RY", "RZ", "RW"]]
+        if keep_cols != ["Frame", "Sub Frame", "TX", "TY", "TZ", "RX", "RY", "RZ", "RW"]:
+            # Force canonical order if some are missing or reordered
+            keep_cols = ["Frame", "Sub Frame", "TX", "TY", "TZ", "RX", "RY", "RZ", "RW"]
+
+        # Create frames at Vicon fps that correspond to the SLAM timestamps (nearest)
+        # Frame numbers are not critical for pose values, but keep them consistent.
+        frame0 = int(vicon_df["Frame"].iloc[0])
+        sub0 = int(vicon_df["Sub Frame"].iloc[0]) if "Sub Frame" in vicon_df.columns else 0
+
+        # Map query times to "frame numbers" (relative to vicon start)
+        frame_numbers = frame0 + np.round(t_query * fps_v).astype(int)
+
+        new_df = pd.DataFrame({
+            "Frame": frame_numbers,
+            "Sub Frame": np.full_like(frame_numbers, sub0),
+            "TX": p_rs[:, 0] * 1000.0,  # m -> mm
+            "TY": p_rs[:, 1] * 1000.0,
+            "TZ": p_rs[:, 2] * 1000.0,
+            "RX": q_rs[:, 0],
+            "RY": q_rs[:, 1],
+            "RZ": q_rs[:, 2],
+            "RW": q_rs[:, 3],
+        })
+
+        # Save with original preamble preserved
+        write_vicon_like_original(out_path, vicon_lines, header_idx, new_df)
+
+        # Quick sanity
+        assert len(new_df) == len(slam), f"[{idx}] Saved length != SLAM length"
+        print(f"[{idx}] Saved: {out_path}  (rows={len(new_df)})")
