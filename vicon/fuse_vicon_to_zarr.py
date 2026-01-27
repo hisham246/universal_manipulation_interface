@@ -17,11 +17,13 @@ import pathlib
 import zarr
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation, Slerp
 
 from diffusion_policy.common.replay_buffer import ReplayBuffer
 from diffusion_policy.codecs.imagecodecs_numcodecs import register_codecs
-from umi.common.pose_util import pose_to_mat  # for cam->tcp
+from umi.common.pose_util import pose_to_mat
+from vicon.gopro_to_tcp_transform import quat_mean_markley  # for cam->tcp
 
 register_codecs()
 
@@ -125,6 +127,113 @@ def get_vicon_csv_for_episode(ep: int, vicon_dir_path: pathlib.Path, csv_list_so
             raise RuntimeError(f"Episode {ep} out of range for vicon csv list (len={len(csv_list_sorted)})")
         return vicon_dir_path / csv_list_sorted[ep]
 
+
+def rot_jitter_stats(quat_xyzw: np.ndarray, t_cam_tcp: np.ndarray, name="cam"):
+    """
+    quat_xyzw: (N,4) in xyzw
+    t_cam_tcp: (3,) translation expressed in camera frame
+    Returns dict of stats and prints a short summary.
+    """
+    R = Rotation.from_quat(quat_xyzw)
+
+    # relative rotation between consecutive frames: R_{k}^{-1} R_{k+1}
+    dR = R[:-1].inv() * R[1:]
+    dang = dR.magnitude()  # radians, (N-1,)
+
+    # equivalent position jitter from lever arm
+    lever = float(np.linalg.norm(t_cam_tcp))
+    pos_equiv = lever * dang  # meters, small-angle approx is fine
+
+    stats = {
+        "lever_m": lever,
+        "dang_deg_median": float(np.median(dang) * 180/np.pi),
+        "dang_deg_mean": float(np.mean(dang) * 180/np.pi),
+        "dang_deg_p95": float(np.percentile(dang, 95) * 180/np.pi),
+        "dang_deg_max": float(np.max(dang) * 180/np.pi),
+        "pos_equiv_mm_median": float(np.median(pos_equiv) * 1e3),
+        "pos_equiv_mm_mean": float(np.mean(pos_equiv) * 1e3),
+        "pos_equiv_mm_p95": float(np.percentile(pos_equiv, 95) * 1e3),
+        "pos_equiv_mm_max": float(np.max(pos_equiv) * 1e3),
+    }
+
+    print(f"\n=== Rotation jitter ({name}) ===")
+    print(f"lever arm ||t|| = {stats['lever_m']:.4f} m")
+    print("delta angle per frame [deg]: "
+          f"median={stats['dang_deg_median']:.4f}, mean={stats['dang_deg_mean']:.4f}, "
+          f"p95={stats['dang_deg_p95']:.4f}, max={stats['dang_deg_max']:.4f}")
+    print("equiv pos jitter from lever [mm]: "
+          f"median={stats['pos_equiv_mm_median']:.3f}, mean={stats['pos_equiv_mm_mean']:.3f}, "
+          f"p95={stats['pos_equiv_mm_p95']:.3f}, max={stats['pos_equiv_mm_max']:.3f}")
+    return stats
+
+def pos_step_stats(pos: np.ndarray, name="pos"):
+    dpos = pos[1:] - pos[:-1]
+    step = np.linalg.norm(dpos, axis=1)  # meters
+    print(f"\n=== Position step stats ({name}) ===")
+    print(f"step [mm]: median={np.median(step)*1e3:.3f}, mean={np.mean(step)*1e3:.3f}, "
+          f"p95={np.percentile(step,95)*1e3:.3f}, max={np.max(step)*1e3:.3f}")
+    return step
+
+
+def smooth_quat_slerp(quat_xyzw: np.ndarray, win: int = 5) -> np.ndarray:
+    """
+    Smooth quaternions with a sliding window by slerping to the window mean.
+    win should be odd (e.g., 5, 7, 9). Returns xyzw.
+    """
+    assert win >= 3 and (win % 2 == 1)
+    N = quat_xyzw.shape[0]
+    q = quat_xyzw.copy()
+
+    # fix sign continuity first (avoid flips)
+    for i in range(1, N):
+        if np.dot(q[i-1], q[i]) < 0:
+            q[i] *= -1.0
+
+    half = win // 2
+    out = q.copy()
+
+    for i in range(N):
+        a = max(0, i - half)
+        b = min(N, i + half + 1)
+        # Markley mean on the window
+        qw = quat_mean_markley(q[a:b])
+        # slerp current toward mean (alpha=1 means replace; use <1 for gentler)
+        # out[i] = Rotation.from_quat(qw).as_quat()
+        alpha = 0.5  # 0..1
+        out[i] = (Rotation.from_quat(q[i]).slerp(alpha, Rotation.from_quat(qw))).as_quat()
+
+    return out
+
+
+def smooth_quat_exp(quat_xyzw: np.ndarray, alpha: float = 0.15) -> np.ndarray:
+    """
+    Exponential smoothing on rotations:
+      R_s[k] = R_s[k-1] * exp( alpha * log( R_s[k-1]^{-1} R[k] ) )
+    alpha in (0,1], smaller -> smoother.
+    Returns xyzw.
+    """
+    R = Rotation.from_quat(quat_xyzw)
+    N = len(R)
+    Rs = [R[0]]
+    for k in range(1, N):
+        d = Rs[-1].inv() * R[k]
+        rv = d.as_rotvec()
+        Rs.append(Rs[-1] * Rotation.from_rotvec(alpha * rv))
+    return Rotation.concatenate(Rs).as_quat()
+
+def ang_speed_stats(quat_xyzw: np.ndarray, hz: float, name="cam"):
+    dt = 1.0 / hz
+    R = Rotation.from_quat(quat_xyzw)
+    dR = R[:-1].inv() * R[1:]
+    dtheta = dR.magnitude()                 # rad/frame
+    omega = dtheta / dt                     # rad/s
+    omega_deg = omega * 180/np.pi           # deg/s
+    print(f"\n=== Angular speed ({name}) ===")
+    print(f"deg/s: median={np.median(omega_deg):.2f}, mean={np.mean(omega_deg):.2f}, "
+          f"p95={np.percentile(omega_deg,95):.2f}, max={np.max(omega_deg):.2f}")
+    return omega_deg
+
+
 # -----------------------------------------------------------------------------
 # 1) Read episode boundaries + original array metadata (dtype/chunks/compressor)
 # -----------------------------------------------------------------------------
@@ -194,7 +303,7 @@ Dpose = Dpos + Drot
 # pose_cam_tcp = np.array([0.0, cam_to_center_height, cam_to_tip_offset, 0.0, 0.0, 0.0], dtype=np.float64)
 # T_cam_tcp = pose_to_mat(pose_cam_tcp).astype(np.float64)  # (4,4)
 
-pose_cam_tcp = np.array([-0.01938062, -0.19540817, -0.09206965, 0.0, 0.0, 0.0], dtype=np.float64)
+pose_cam_tcp = np.array([-0.01935615, -0.19549504, -0.09199475, 0.0, 0.0, 0.0], dtype=np.float64)
 T_cam_tcp = pose_to_mat(pose_cam_tcp)
 
 # -----------------------------------------------------------------------------
@@ -220,6 +329,21 @@ for ep in range(num_episodes):
     vdf = read_vicon_csv(vicon_csv_path)
     pos_cam, quat_cam = vicon_df_to_pos_quat(vdf, pos_scale=vicon_pos_scale)
 
+    t = T_cam_tcp[:3, 3].copy()
+
+    # quat_cam_smooth = smooth_quat_slerp(quat_cam, win=5)
+    # R_smooth = Rotation.from_quat(quat_cam_smooth).as_matrix()
+    # p_rigid_smooth = pos_cam + (R_smooth @ t.reshape(3,1)).squeeze(-1)
+
+    R = Rotation.from_quat(quat_cam).as_matrix()  # assumes xyzw
+    p_rigid = pos_cam + (R @ t.reshape(3,1)).squeeze(-1)  # correct rigid offset application
+    p_world_translate_only = pos_cam + t  # WRONG unless t is in world
+
+    delta = p_rigid - p_world_translate_only
+    print("delta stats (m):",
+        "mean", np.mean(np.linalg.norm(delta, axis=1)),
+        "max",  np.max(np.linalg.norm(delta, axis=1)))
+
     # if pos_cam.shape[0] != ep_len:
     #     if not allow_resample:
     #         raise RuntimeError(
@@ -232,13 +356,31 @@ for ep in range(num_episodes):
             f"Episode {ep} length mismatch: vicon={pos_cam.shape[0]} vs ep_len={ep_len} ({vicon_csv_path})"
         )
 
-    # cam->tcp
-    T_world_cam = pos_quat_to_T(pos_cam, quat_cam)        # (L,4,4)
-    T_world_tcp = T_world_cam @ T_cam_tcp                 # (L,4,4)
+    # # cam->tcp
+    # T_world_cam = pos_quat_to_T(pos_cam, quat_cam)        # (L,4,4)
+    # T_world_tcp = T_world_cam @ T_cam_tcp                 # (L,4,4)
 
-    pos_tcp = T_world_tcp[:, :3, 3]                       # (L,3)
-    rot_tcp = Rotation.from_matrix(T_world_tcp[:, :3, :3])
-    rotvec_tcp = rot_tcp.as_rotvec()                      # (L,3)
+    # pos_tcp = T_world_tcp[:, :3, 3]                       # (L,3)
+    # rot_tcp = Rotation.from_matrix(T_world_tcp[:, :3, :3])
+    # rotvec_tcp = rot_tcp.as_rotvec()                      # (L,3)
+
+    # smooth quat
+    quat_cam_smooth = smooth_quat_exp(quat_cam, alpha=0.3)
+
+    rot_jitter_stats(quat_cam,        t, name=f"ep{ep} cam RAW")
+    rot_jitter_stats(quat_cam_smooth, t, name=f"ep{ep} cam SMOOTH")
+
+    R_smooth = Rotation.from_quat(quat_cam_smooth)
+    pos_tcp = pos_cam + R_smooth.apply(t)
+    rotvec_tcp = R_smooth.as_rotvec()
+
+    dq = np.linalg.norm(quat_cam_smooth - quat_cam, axis=1)
+    print("quat diff max:", dq.max())
+
+
+    # after computing pos_tcp:
+    pos_step_stats(pos_cam, name=f"ep{ep} cam")
+    pos_step_stats(pos_tcp, name=f"ep{ep} tcp (derived)")
 
     # write per-step eef
     eef_pos_new[s:e, :] = pos_tcp.astype(orig["robot0_eef_pos"]["dtype"], copy=False)

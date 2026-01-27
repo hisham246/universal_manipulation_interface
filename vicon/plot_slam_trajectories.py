@@ -11,7 +11,6 @@ def natural_key(path):
 # data_dir = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/slam_segmented"
 data_dir = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/vicon_final"
 
-
 episode_files = sorted([f for f in os.listdir(data_dir) if f.startswith("episode_") and f.endswith(".csv")], key=natural_key)
 
 fig = plt.figure(figsize=(10, 7))
