@@ -9,10 +9,10 @@ register_codecs()
 def natural_key(path):
     return [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', path)]
 
-src_path = "/home/hisham246/uwaterloo/peg_in_hole_umi/peg_in_hole_insertion_final.zarr.zip"
-dst_path = "/home/hisham246/uwaterloo/peg_in_hole_umi/peg_in_hole_insertion_final_stiffness.zarr.zip"
+src_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/peg_in_hole_umi_with_vicon_segmented.zarr.zip"
+dst_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/peg_in_hole_insertion.zarr.zip"
 
-data_path = "/home/hisham246/uwaterloo/peg_in_hole_umi/stiffness_profiles"
+data_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/stiffness_profiles"
 
 stiffness_files = sorted([f for f in os.listdir(data_path) if f.startswith("stiffness_episode_") and f.endswith(".csv")], key=natural_key)
 
@@ -48,7 +48,7 @@ data.create_dataset(
     shape=stiffness_vec.shape,
     dtype='float32',
     compressor=None,
-    chunks=(234, 6)
+    chunks=(319, 6)
 )
 
 with zarr.ZipStore(dst_path, mode='w') as dst_store:
