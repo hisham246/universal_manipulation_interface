@@ -243,7 +243,7 @@ def animate_overlay_frames(orig_df, proc_df, stride=1, axis_len=0.03, interval_m
 # ----------------------------
 if __name__ == "__main__":
     vicon_original_dir  = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/vicon_quat_trimmed/"
-    vicon_processed_dir = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/vicon_quat_trimmed_3/"
+    vicon_processed_dir = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/vicon_quat_resampled_to_slam_3/"
 
     vicon_original_csv = sorted(glob.glob(os.path.join(vicon_original_dir, "*.csv")), key=natural_key)
     vicon_processed_csv = sorted(glob.glob(os.path.join(vicon_processed_dir, "*.csv")), key=natural_key)  # fixed
