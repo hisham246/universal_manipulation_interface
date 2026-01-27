@@ -3,27 +3,25 @@
 Replace (overwrite) robot0_eef_pos / robot0_eef_rot_axis_angle using Vicon poses,
 then recompute robot0_demo_start_pose / robot0_demo_end_pose using meta/episode_ends.
 
-Vicon CSV is expected to contain: TX,TY,TZ,RX,RY,RZ,RW (quat xyzw).
-- TX/TY/TZ are scaled by vicon_pos_scale (1e-3 if mm -> m).
-- We apply a fixed cam->tcp transform (UMI constants + tcp_offset).
-- Output orientation is stored as rotvec (axis-angle vector), i.e. Rotation.as_rotvec().
+Key changes vs your current version:
+1) No Rotation.slerp() (doesn't exist) and no window-mean slerp attempt.
+2) Rotation smoothing uses an error-state exponential filter with cutoff frequency (Hz).
+3) The main jitter amplifier is the lever arm: we low-pass filter u(t)=R(t)*t directly (very effective, low lag).
+4) Optional: light alpha-beta filtering on pos_tcp to reduce residual jitter with minimal lag.
 
-Writes to a new Zarr zip store (same style as your script).
+This avoids “significant lag” while killing the jitter that comes from R(t)*t.
 """
 
-import os
 import re
 import pathlib
 import zarr
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-from scipy.spatial.transform import Rotation, Slerp
+from scipy.spatial.transform import Rotation
 
 from diffusion_policy.common.replay_buffer import ReplayBuffer
 from diffusion_policy.codecs.imagecodecs_numcodecs import register_codecs
 from umi.common.pose_util import pose_to_mat
-from vicon.gopro_to_tcp_transform import quat_mean_markley  # for cam->tcp
 
 register_codecs()
 
@@ -32,31 +30,41 @@ register_codecs()
 # -----------------------------------------------------------------------------
 src_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/peg_in_hole_umi_with_vicon_segmented.zarr.zip"
 dst_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/peg_in_hole_umi_with_vicon_final.zarr.zip"
-
 vicon_dir = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/vicon_quat_resampled_to_slam_3"
 
 # -----------------------------------------------------------------------------
 # Vicon file mapping options
 # -----------------------------------------------------------------------------
-# Option A (pattern): episode 0 -> file index 1 (one_based=True) => peg_umi_quat 1.csv
 use_pattern = True
 pattern = "peg_umi_quat {i}.csv"
 one_based = True
-
-# Option B (sorted list): ignore pattern and just take all CSVs in vicon_dir sorted naturally
-# use_pattern = False
+# use_pattern = False  # use sorted list instead of pattern
 
 # -----------------------------------------------------------------------------
 # Vicon / transform config
 # -----------------------------------------------------------------------------
-vicon_pos_scale = 1e-3  # mm -> m (use 1.0 if already meters)
+vicon_pos_scale = 1e-3  # mm -> m
 
-# tcp_offset = 0.205            # meters, tip -> mounting screw
-# cam_to_center_height = 0.086  # meters (UMI constant)
-# cam_to_mount_offset = 0.01465 # meters (GoPro constant)
+# Your cam->tcp translation (in camera frame), no rotation
+pose_cam_tcp = np.array([-0.01935615, -0.19549504, -0.09199475, 0.0, 0.0, 0.0], dtype=np.float64)
+T_cam_tcp = pose_to_mat(pose_cam_tcp).astype(np.float64)
+t_cam_tcp = T_cam_tcp[:3, 3].copy()
 
-# If vicon length != episode length:
-allow_resample = False  # if False -> raise error
+# -----------------------------------------------------------------------------
+# Filtering config (60 Hz target)
+# -----------------------------------------------------------------------------
+HZ = 60.0
+
+# Rotation smoothing cutoff (Hz): higher = less lag, less smoothing
+ROT_CUTOFF_HZ = 6.0      # try 6.0, if still jittery -> 4.0; if too laggy -> 8-10
+
+# Lever smoothing gain (0..1): higher = less lag, less smoothing
+LEVER_K = 0.55           # try 0.55; if still jittery -> 0.35-0.45; if laggy -> 0.7
+
+# Optional position alpha-beta filter on pos_tcp after lever filtering
+USE_ALPHA_BETA_POS = True
+POS_KP = 0.25            # higher -> less lag
+POS_KV = 0.05            # higher -> smoother velocity / less jitter
 # -----------------------------------------------------------------------------
 
 def natural_key(s: str):
@@ -83,184 +91,125 @@ def read_vicon_csv(vicon_csv_path: pathlib.Path) -> pd.DataFrame:
 
 def vicon_df_to_pos_quat(df: pd.DataFrame, pos_scale: float):
     pos = df[["TX", "TY", "TZ"]].to_numpy(dtype=np.float64) * pos_scale
-    quat = df[["RX", "RY", "RZ", "RW"]].to_numpy(dtype=np.float64)
+    quat = df[["RX", "RY", "RZ", "RW"]].to_numpy(dtype=np.float64)  # xyzw
 
+    # normalize
     n = np.linalg.norm(quat, axis=1, keepdims=True) + 1e-12
     quat = quat / n
+
+    # sign continuity (prevents sudden flips that hurt any smoothing)
+    for i in range(1, len(quat)):
+        if np.dot(quat[i - 1], quat[i]) < 0:
+            quat[i] *= -1.0
+
     return pos, quat
-
-def pos_quat_to_T(pos: np.ndarray, quat: np.ndarray) -> np.ndarray:
-    Rm = Rotation.from_quat(quat).as_matrix()
-    T = np.zeros((len(pos), 4, 4), dtype=np.float64)
-    T[:, 3, 3] = 1.0
-    T[:, :3, :3] = Rm
-    T[:, :3, 3] = pos
-    return T
-
-# def resample_pos_quat(pos: np.ndarray, quat: np.ndarray, out_len: int):
-#     N = pos.shape[0]
-#     if N == out_len:
-#         return pos, quat
-#     if N < 2:
-#         raise RuntimeError(f"Cannot resample Vicon with N={N}")
-
-#     t_in = np.linspace(0.0, 1.0, N)
-#     t_out = np.linspace(0.0, 1.0, out_len)
-
-#     pos_out = np.stack([np.interp(t_out, t_in, pos[:, d]) for d in range(3)], axis=1)
-
-#     r_in = Rotation.from_quat(quat)
-#     slerp = Slerp(t_in, r_in)
-#     r_out = slerp(t_out)
-#     quat_out = r_out.as_quat()
-
-#     return pos_out.astype(np.float64), quat_out.astype(np.float64)
 
 def get_vicon_csv_for_episode(ep: int, vicon_dir_path: pathlib.Path, csv_list_sorted=None) -> pathlib.Path:
     if use_pattern:
         file_i = (ep + 1) if one_based else ep
-        p = vicon_dir_path / pattern.format(i=file_i)
-        return p
+        return vicon_dir_path / pattern.format(i=file_i)
     else:
         assert csv_list_sorted is not None
         if ep < 0 or ep >= len(csv_list_sorted):
             raise RuntimeError(f"Episode {ep} out of range for vicon csv list (len={len(csv_list_sorted)})")
         return vicon_dir_path / csv_list_sorted[ep]
 
-
 def rot_jitter_stats(quat_xyzw: np.ndarray, t_cam_tcp: np.ndarray, name="cam"):
-    """
-    quat_xyzw: (N,4) in xyzw
-    t_cam_tcp: (3,) translation expressed in camera frame
-    Returns dict of stats and prints a short summary.
-    """
     R = Rotation.from_quat(quat_xyzw)
-
-    # relative rotation between consecutive frames: R_{k}^{-1} R_{k+1}
     dR = R[:-1].inv() * R[1:]
-    dang = dR.magnitude()  # radians, (N-1,)
+    dang = dR.magnitude()  # rad/frame
 
-    # equivalent position jitter from lever arm
     lever = float(np.linalg.norm(t_cam_tcp))
-    pos_equiv = lever * dang  # meters, small-angle approx is fine
-
-    stats = {
-        "lever_m": lever,
-        "dang_deg_median": float(np.median(dang) * 180/np.pi),
-        "dang_deg_mean": float(np.mean(dang) * 180/np.pi),
-        "dang_deg_p95": float(np.percentile(dang, 95) * 180/np.pi),
-        "dang_deg_max": float(np.max(dang) * 180/np.pi),
-        "pos_equiv_mm_median": float(np.median(pos_equiv) * 1e3),
-        "pos_equiv_mm_mean": float(np.mean(pos_equiv) * 1e3),
-        "pos_equiv_mm_p95": float(np.percentile(pos_equiv, 95) * 1e3),
-        "pos_equiv_mm_max": float(np.max(pos_equiv) * 1e3),
-    }
+    pos_equiv = lever * dang
 
     print(f"\n=== Rotation jitter ({name}) ===")
-    print(f"lever arm ||t|| = {stats['lever_m']:.4f} m")
+    print(f"lever arm ||t|| = {lever:.4f} m")
     print("delta angle per frame [deg]: "
-          f"median={stats['dang_deg_median']:.4f}, mean={stats['dang_deg_mean']:.4f}, "
-          f"p95={stats['dang_deg_p95']:.4f}, max={stats['dang_deg_max']:.4f}")
+          f"median={np.median(dang)*180/np.pi:.4f}, mean={np.mean(dang)*180/np.pi:.4f}, "
+          f"p95={np.percentile(dang,95)*180/np.pi:.4f}, max={np.max(dang)*180/np.pi:.4f}")
     print("equiv pos jitter from lever [mm]: "
-          f"median={stats['pos_equiv_mm_median']:.3f}, mean={stats['pos_equiv_mm_mean']:.3f}, "
-          f"p95={stats['pos_equiv_mm_p95']:.3f}, max={stats['pos_equiv_mm_max']:.3f}")
-    return stats
+          f"median={np.median(pos_equiv)*1e3:.3f}, mean={np.mean(pos_equiv)*1e3:.3f}, "
+          f"p95={np.percentile(pos_equiv,95)*1e3:.3f}, max={np.max(pos_equiv)*1e3:.3f}")
 
 def pos_step_stats(pos: np.ndarray, name="pos"):
-    dpos = pos[1:] - pos[:-1]
-    step = np.linalg.norm(dpos, axis=1)  # meters
+    step = np.linalg.norm(pos[1:] - pos[:-1], axis=1)
     print(f"\n=== Position step stats ({name}) ===")
     print(f"step [mm]: median={np.median(step)*1e3:.3f}, mean={np.mean(step)*1e3:.3f}, "
           f"p95={np.percentile(step,95)*1e3:.3f}, max={np.max(step)*1e3:.3f}")
-    return step
 
+def alpha_from_cutoff(fc_hz: float, hz: float):
+    # alpha = 1 - exp(-2*pi*fc*dt)
+    dt = 1.0 / hz
+    return float(1.0 - np.exp(-2.0 * np.pi * fc_hz * dt))
 
-def smooth_quat_slerp(quat_xyzw: np.ndarray, win: int = 5) -> np.ndarray:
+def smooth_quat_exp_cutoff(quat_xyzw: np.ndarray, hz: float, fc_hz: float) -> np.ndarray:
     """
-    Smooth quaternions with a sliding window by slerping to the window mean.
-    win should be odd (e.g., 5, 7, 9). Returns xyzw.
+    Error-state exponential smoothing on SO(3):
+      Rf[k] = Rf[k-1] * Exp( alpha * Log( Rf[k-1]^{-1} R[k] ) )
+    alpha derived from cutoff frequency to control lag vs smoothing.
     """
-    assert win >= 3 and (win % 2 == 1)
-    N = quat_xyzw.shape[0]
-    q = quat_xyzw.copy()
-
-    # fix sign continuity first (avoid flips)
-    for i in range(1, N):
-        if np.dot(q[i-1], q[i]) < 0:
-            q[i] *= -1.0
-
-    half = win // 2
-    out = q.copy()
-
-    for i in range(N):
-        a = max(0, i - half)
-        b = min(N, i + half + 1)
-        # Markley mean on the window
-        qw = quat_mean_markley(q[a:b])
-        # slerp current toward mean (alpha=1 means replace; use <1 for gentler)
-        # out[i] = Rotation.from_quat(qw).as_quat()
-        alpha = 0.5  # 0..1
-        out[i] = (Rotation.from_quat(q[i]).slerp(alpha, Rotation.from_quat(qw))).as_quat()
-
-    return out
-
-
-def smooth_quat_exp(quat_xyzw: np.ndarray, alpha: float = 0.15) -> np.ndarray:
-    """
-    Exponential smoothing on rotations:
-      R_s[k] = R_s[k-1] * exp( alpha * log( R_s[k-1]^{-1} R[k] ) )
-    alpha in (0,1], smaller -> smoother.
-    Returns xyzw.
-    """
-    R = Rotation.from_quat(quat_xyzw)
-    N = len(R)
-    Rs = [R[0]]
-    for k in range(1, N):
-        d = Rs[-1].inv() * R[k]
+    alpha = alpha_from_cutoff(fc_hz, hz)
+    Rm = Rotation.from_quat(quat_xyzw)
+    Rs = [Rm[0]]
+    for k in range(1, len(Rm)):
+        d = Rs[-1].inv() * Rm[k]
         rv = d.as_rotvec()
         Rs.append(Rs[-1] * Rotation.from_rotvec(alpha * rv))
     return Rotation.concatenate(Rs).as_quat()
 
-def ang_speed_stats(quat_xyzw: np.ndarray, hz: float, name="cam"):
-    dt = 1.0 / hz
-    R = Rotation.from_quat(quat_xyzw)
-    dR = R[:-1].inv() * R[1:]
-    dtheta = dR.magnitude()                 # rad/frame
-    omega = dtheta / dt                     # rad/s
-    omega_deg = omega * 180/np.pi           # deg/s
-    print(f"\n=== Angular speed ({name}) ===")
-    print(f"deg/s: median={np.median(omega_deg):.2f}, mean={np.mean(omega_deg):.2f}, "
-          f"p95={np.percentile(omega_deg,95):.2f}, max={np.max(omega_deg):.2f}")
-    return omega_deg
+def lever_lowpass(u: np.ndarray, k: float) -> np.ndarray:
+    """
+    Low-pass filter u[k] = u[k-1] + k*(u_raw[k]-u[k-1]) on 3D vectors.
+    k in (0,1]. Larger k => less lag, less smoothing.
+    """
+    out = u.copy()
+    for i in range(1, len(u)):
+        out[i] = out[i - 1] + k * (u[i] - out[i - 1])
+    return out
 
+def alpha_beta_filter_pos(pos_meas: np.ndarray, hz: float, kp: float, kv: float) -> np.ndarray:
+    """
+    Alpha-beta filter on position:
+      pred = x + v*dt
+      err = meas - pred
+      x = pred + kp*err
+      v = v + (kv/dt)*err
+    """
+    dt = 1.0 / hz
+    x = pos_meas[0].copy()
+    v = np.zeros(3, dtype=np.float64)
+    out = np.empty_like(pos_meas)
+    out[0] = x
+    for k in range(1, len(pos_meas)):
+        pred = x + v * dt
+        err = pos_meas[k] - pred
+        x = pred + kp * err
+        v = v + (kv / dt) * err
+        out[k] = x
+    return out
 
 # -----------------------------------------------------------------------------
-# 1) Read episode boundaries + original array metadata (dtype/chunks/compressor)
+# Main
 # -----------------------------------------------------------------------------
 src_path = str(pathlib.Path(src_path).expanduser().absolute())
 dst_path = str(pathlib.Path(dst_path).expanduser().absolute())
 vicon_dir_path = pathlib.Path(vicon_dir).expanduser().absolute()
-
 if not vicon_dir_path.is_dir():
     raise RuntimeError(f"vicon_dir does not exist: {vicon_dir_path}")
 
 vicon_csv_names_sorted = None
 if not use_pattern:
-    vicon_csv_names_sorted = sorted(
-        [p.name for p in vicon_dir_path.glob("*.csv")],
-        key=natural_key
-    )
+    vicon_csv_names_sorted = sorted([p.name for p in vicon_dir_path.glob("*.csv")], key=natural_key)
     if len(vicon_csv_names_sorted) == 0:
         raise RuntimeError(f"No CSV files found in {vicon_dir_path}")
 
+# Read meta + original dtypes/chunks
 with zarr.ZipStore(src_path, mode="r") as src_store:
     root = zarr.open(src_store)
-
-    episode_ends_idx = np.asarray(root["meta"]["episode_ends"][:], dtype=int)  # [E], exclusive
-    episode_start_idxs = np.concatenate(([0], episode_ends_idx[:-1]))          # [E], inclusive
+    episode_ends_idx = np.asarray(root["meta"]["episode_ends"][:], dtype=int)
+    episode_start_idxs = np.concatenate(([0], episode_ends_idx[:-1]))
     num_episodes = len(episode_ends_idx)
 
-    # Original metadata for arrays we will overwrite
     keys_to_overwrite = [
         "robot0_eef_pos",
         "robot0_eef_rot_axis_angle",
@@ -272,48 +221,26 @@ with zarr.ZipStore(src_path, mode="r") as src_store:
         arr = root["data"][key]
         orig[key] = dict(dtype=arr.dtype, chunks=arr.chunks, compressor=arr.compressor)
 
-    # Sanity check T
     T_data = root["data"]["robot0_eef_pos"].shape[0]
     assert episode_ends_idx[-1] == T_data, f"episode_ends last={episode_ends_idx[-1]} != T={T_data}"
 
 print(f"Loaded meta: num_episodes={num_episodes}, T={episode_ends_idx[-1]}")
 
-# -----------------------------------------------------------------------------
-# 2) Load replay buffer into memory
-# -----------------------------------------------------------------------------
+# Load replay buffer into memory
 with zarr.ZipStore(src_path, mode="r") as src_store:
-    replay_buffer = ReplayBuffer.copy_from_store(
-        src_store=src_store,
-        store=zarr.MemoryStore()
-    )
+    replay_buffer = ReplayBuffer.copy_from_store(src_store=src_store, store=zarr.MemoryStore())
 
 data = replay_buffer.data
-
 T = data["robot0_eef_pos"].shape[0]
-Dpos = data["robot0_eef_pos"].shape[1]
-Drot = data["robot0_eef_rot_axis_angle"].shape[1]
-assert Dpos == 3, f"Expected robot0_eef_pos dim=3, got {Dpos}"
-assert Drot == 3, f"Expected robot0_eef_rot_axis_angle dim=3 (rotvec), got {Drot}"
-Dpose = Dpos + Drot
+Dpose = 6
 
-# -----------------------------------------------------------------------------
-# 3) Build constant cam->tcp transform
-# -----------------------------------------------------------------------------
-# cam_to_tip_offset = cam_to_mount_offset + tcp_offset
-# pose_cam_tcp = np.array([0.0, cam_to_center_height, cam_to_tip_offset, 0.0, 0.0, 0.0], dtype=np.float64)
-# T_cam_tcp = pose_to_mat(pose_cam_tcp).astype(np.float64)  # (4,4)
-
-pose_cam_tcp = np.array([-0.01935615, -0.19549504, -0.09199475, 0.0, 0.0, 0.0], dtype=np.float64)
-T_cam_tcp = pose_to_mat(pose_cam_tcp)
-
-# -----------------------------------------------------------------------------
-# 4) Compute new eef pos/rot (from Vicon) and demo start/end pose arrays
-# -----------------------------------------------------------------------------
 eef_pos_new = np.empty((T, 3), dtype=orig["robot0_eef_pos"]["dtype"])
 eef_rot_new = np.empty((T, 3), dtype=orig["robot0_eef_rot_axis_angle"]["dtype"])
-
 demo_start_new = np.empty((T, Dpose), dtype=orig["robot0_demo_start_pose"]["dtype"])
 demo_end_new   = np.empty((T, Dpose), dtype=orig["robot0_demo_end_pose"]["dtype"])
+
+print(f"Filter settings: HZ={HZ}, ROT_CUTOFF_HZ={ROT_CUTOFF_HZ}, LEVER_K={LEVER_K}, "
+      f"USE_ALPHA_BETA_POS={USE_ALPHA_BETA_POS}, POS_KP={POS_KP}, POS_KV={POS_KV}")
 
 for ep in range(num_episodes):
     s = int(episode_start_idxs[ep])
@@ -329,58 +256,43 @@ for ep in range(num_episodes):
     vdf = read_vicon_csv(vicon_csv_path)
     pos_cam, quat_cam = vicon_df_to_pos_quat(vdf, pos_scale=vicon_pos_scale)
 
-    t = T_cam_tcp[:3, 3].copy()
-
-    # quat_cam_smooth = smooth_quat_slerp(quat_cam, win=5)
-    # R_smooth = Rotation.from_quat(quat_cam_smooth).as_matrix()
-    # p_rigid_smooth = pos_cam + (R_smooth @ t.reshape(3,1)).squeeze(-1)
-
-    R = Rotation.from_quat(quat_cam).as_matrix()  # assumes xyzw
-    p_rigid = pos_cam + (R @ t.reshape(3,1)).squeeze(-1)  # correct rigid offset application
-    p_world_translate_only = pos_cam + t  # WRONG unless t is in world
-
-    delta = p_rigid - p_world_translate_only
-    print("delta stats (m):",
-        "mean", np.mean(np.linalg.norm(delta, axis=1)),
-        "max",  np.max(np.linalg.norm(delta, axis=1)))
-
-    # if pos_cam.shape[0] != ep_len:
-    #     if not allow_resample:
-    #         raise RuntimeError(
-    #             f"Episode {ep} length mismatch: vicon={pos_cam.shape[0]} vs ep_len={ep_len} ({vicon_csv_path})"
-    #         )
-    #     pos_cam, quat_cam = resample_pos_quat(pos_cam, quat_cam, out_len=ep_len)
-
     if pos_cam.shape[0] != ep_len:
         raise RuntimeError(
             f"Episode {ep} length mismatch: vicon={pos_cam.shape[0]} vs ep_len={ep_len} ({vicon_csv_path})"
         )
 
-    # # cam->tcp
-    # T_world_cam = pos_quat_to_T(pos_cam, quat_cam)        # (L,4,4)
-    # T_world_tcp = T_world_cam @ T_cam_tcp                 # (L,4,4)
+    # Diagnostics: what global-translation-only would miss (purely for understanding)
+    R_raw = Rotation.from_quat(quat_cam).as_matrix()
+    p_rigid = pos_cam + (R_raw @ t_cam_tcp.reshape(3, 1)).squeeze(-1)
+    p_translate_only = pos_cam + t_cam_tcp
+    delta = p_rigid - p_translate_only
+    print("\ndelta stats (m): mean", float(np.mean(np.linalg.norm(delta, axis=1))),
+          "max", float(np.max(np.linalg.norm(delta, axis=1))))
 
-    # pos_tcp = T_world_tcp[:, :3, 3]                       # (L,3)
-    # rot_tcp = Rotation.from_matrix(T_world_tcp[:, :3, :3])
-    # rotvec_tcp = rot_tcp.as_rotvec()                      # (L,3)
+    # 1) Smooth rotation (low-lag, cutoff-controlled)
+    quat_cam_smooth = smooth_quat_exp_cutoff(quat_cam, hz=HZ, fc_hz=ROT_CUTOFF_HZ)
 
-    # smooth quat
-    quat_cam_smooth = smooth_quat_exp(quat_cam, alpha=0.3)
-
-    rot_jitter_stats(quat_cam,        t, name=f"ep{ep} cam RAW")
-    rot_jitter_stats(quat_cam_smooth, t, name=f"ep{ep} cam SMOOTH")
-
+    # 2) Compute lever term and filter it directly (big jitter reduction, low lag)
     R_smooth = Rotation.from_quat(quat_cam_smooth)
-    pos_tcp = pos_cam + R_smooth.apply(t)
+    u_raw = R_smooth.apply(t_cam_tcp)               # (N,3)
+    u_f   = lever_lowpass(u_raw, k=LEVER_K)         # (N,3)
+
+    # 3) Derived TCP pose
+    pos_tcp = pos_cam + u_f
     rotvec_tcp = R_smooth.as_rotvec()
 
-    dq = np.linalg.norm(quat_cam_smooth - quat_cam, axis=1)
-    print("quat diff max:", dq.max())
+    # 4) Optional: alpha-beta on position to kill any remaining high-freq jitter with tiny lag
+    if USE_ALPHA_BETA_POS:
+        pos_tcp = alpha_beta_filter_pos(pos_tcp, hz=HZ, kp=POS_KP, kv=POS_KV)
 
-
-    # after computing pos_tcp:
-    pos_step_stats(pos_cam, name=f"ep{ep} cam")
-    pos_step_stats(pos_tcp, name=f"ep{ep} tcp (derived)")
+    # Diagnostics (first few eps only to avoid huge spam)
+    if ep < 10:
+        rot_jitter_stats(quat_cam,        t_cam_tcp, name=f"ep{ep} cam RAW")
+        rot_jitter_stats(quat_cam_smooth, t_cam_tcp, name=f"ep{ep} cam SMOOTH")
+        pos_step_stats(pos_cam, name=f"ep{ep} cam")
+        pos_step_stats(pos_tcp, name=f"ep{ep} tcp (derived)")
+        dq = np.linalg.norm(quat_cam_smooth - quat_cam, axis=1)
+        print("quat diff max:", float(dq.max()))
 
     # write per-step eef
     eef_pos_new[s:e, :] = pos_tcp.astype(orig["robot0_eef_pos"]["dtype"], copy=False)
@@ -395,9 +307,7 @@ for ep in range(num_episodes):
 
 print("Computed new Vicon-based eef pos/rot and demo start/end poses.")
 
-# -----------------------------------------------------------------------------
-# 5) Overwrite datasets in replay buffer (same style as your script)
-# -----------------------------------------------------------------------------
+# Overwrite datasets
 for key in ["robot0_eef_pos", "robot0_eef_rot_axis_angle", "robot0_demo_start_pose", "robot0_demo_end_pose"]:
     if key in data:
         del data[key]
@@ -427,16 +337,13 @@ data.create_dataset(
     compressor=orig["robot0_demo_end_pose"]["compressor"],
 )
 
-# meta stays the same (episode_ends unchanged)
-
-# -----------------------------------------------------------------------------
-# 6) Save to destination and verify quickly
-# -----------------------------------------------------------------------------
+# Save
 with zarr.ZipStore(dst_path, mode="w") as dst_store:
     replay_buffer.save_to_store(dst_store)
 
 print(f"Saved updated dataset to: {dst_path}")
 
+# Quick verify
 with zarr.ZipStore(dst_path, mode="r") as verify_store:
     root_out = zarr.open(verify_store)
     print("Verify shapes:")
