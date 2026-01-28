@@ -265,12 +265,12 @@ if __name__ == "__main__":
         # 1) Static 3D overlay
         plot_overlay_3d(orig_df, proc_df, title=f"Overlay: {os.path.basename(orig_path)}")
 
-        # # 2) Animation with moving frames
-        # # tweak stride/axis_len depending on density and scale
-        # animate_overlay_frames(
-        #     orig_df, proc_df,
-        #     stride=1,
-        #     axis_len=0.03,       # meters (after auto mm->m conversion)
-        #     interval_ms=25,
-        #     save_path=None       # e.g., "/tmp/overlay.mp4" or "/tmp/overlay.gif"
-        # )
+        # 2) Animation with moving frames
+        # tweak stride/axis_len depending on density and scale
+        animate_overlay_frames(
+            orig_df, proc_df,
+            stride=1,
+            axis_len=0.03,       # meters (after auto mm->m conversion)
+            interval_ms=25,
+            save_path=None       # e.g., "/tmp/overlay.mp4" or "/tmp/overlay.gif"
+        )

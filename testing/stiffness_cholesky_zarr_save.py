@@ -9,10 +9,10 @@ register_codecs()
 def natural_key(path):
     return [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', path)]
 
-src_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/peg_in_hole_umi_with_vicon_segmented.zarr.zip"
-dst_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/peg_in_hole_insertion.zarr.zip"
+src_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/peg_in_hole_umi_slam.zarr.zip"
+dst_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/peg_in_hole_umi_slam_variable_impedance.zarr.zip"
 
-data_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/stiffness_profiles"
+data_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/stiffness_profiles_slam"
 
 stiffness_files = sorted([f for f in os.listdir(data_path) if f.startswith("stiffness_episode_") and f.endswith(".csv")], key=natural_key)
 
