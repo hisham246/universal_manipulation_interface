@@ -295,6 +295,8 @@ class FrankaVariableImpedanceController(mp.Process):
         csv_fieldnames_2 = (
             ["timestamp"] +
             [f"commanded_ee_pose_{i}" for i in range(6)] +
+            [f"commanded_stiffness_{i}" for i in range(6)] +
+            [f"commanded_damping_{i}"   for i in range(6)] +
             [f"actual_ee_pose_{i}" for i in range(6)] +
             [f"actual_joint_pos_{i}" for i in range(7)] +
             [f"actual_joint_vel_{i}" for i in range(7)]
@@ -342,6 +344,10 @@ class FrankaVariableImpedanceController(mp.Process):
                 Kxd=self.Kxd
             )
 
+            cmd_Kx_vec  = self.Kx.copy()
+            cmd_Kxd_vec = self.Kxd.copy()
+
+
             t_start = time.monotonic()
             iter_idx = 0
             keep_running = True
@@ -376,6 +382,10 @@ class FrankaVariableImpedanceController(mp.Process):
                     rot_stiffness = np.array([30.0, 30.0, 30.0], dtype=np.float64)
                     total_stiffness = np.concatenate([target_stiffness, rot_stiffness])          # (6,)
                     total_damping = 2.0 * 0.707 * np.sqrt(total_stiffness)                       # (6,)
+
+                    cmd_Kx_vec  = total_stiffness.copy()
+                    cmd_Kxd_vec = total_damping.copy()
+
                     robot.update_impedance_gains(total_stiffness, total_damping)
 
                 # send command to robot
@@ -400,11 +410,12 @@ class FrankaVariableImpedanceController(mp.Process):
                     writer.writerow(flat_state)
 
                 # Collect and flatten low-level state
-
                 commanded_row = {}
                 commanded_row[f"timestamp"] = t_now
                 for i in range(6):
                     commanded_row[f"commanded_ee_pose_{i}"] = ee_pose[i]
+                    commanded_row[f"commanded_stiffness_{i}"] = cmd_Kx_vec[i]
+                    commanded_row[f"commanded_damping_{i}"]   = cmd_Kxd_vec[i]
 
                 # Write to low-level CSV
                 with open(robot_state_path_2, mode='a', newline='') as csvfile:
