@@ -468,7 +468,7 @@ def main(
 ):
 
     # Diffusion UNet ckpt
-    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/peg_in_hole_vic_8_actions.ckpt'
+    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/peg_in_hole_umi_vicon_vic_16_actions.ckpt'
 
     payload = torch.load(open(ckpt_path, 'rb'), map_location='cpu', pickle_module=dill)
     cfg = payload['cfg']
@@ -664,29 +664,29 @@ def main(
                     print(f"Episode {episode_id} running...")
 
                     while True:
-                        # Visualization based on latest obs from actor thread
-                        obs_vis = robot_wrapper.get_observation()
-                        if obs_vis is not None:
-                            if mirror_crop:
-                                vis_img = obs_vis[f'camera{vis_camera_idx}_rgb'][-1]
-                                crop_img = obs_vis['camera0_rgb_mirror_crop'][-1]
-                                vis_img = np.concatenate([vis_img, crop_img], axis=1)
-                            else:
-                                vis_img = obs_vis[f'camera{vis_camera_idx}_rgb'][-1]
+                        # # Visualization based on latest obs from actor thread
+                        # obs_vis = robot_wrapper.get_observation()
+                        # if obs_vis is not None:
+                        #     if mirror_crop:
+                        #         vis_img = obs_vis[f'camera{vis_camera_idx}_rgb'][-1]
+                        #         crop_img = obs_vis['camera0_rgb_mirror_crop'][-1]
+                        #         vis_img = np.concatenate([vis_img, crop_img], axis=1)
+                        #     else:
+                        #         vis_img = obs_vis[f'camera{vis_camera_idx}_rgb'][-1]
 
-                            text = 'Episode: {}, Time: {:.1f}'.format(
-                                episode_id, time.monotonic() - t_start
-                            )
-                            cv2.putText(
-                                vis_img,
-                                text,
-                                (10, 20),
-                                fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                                fontScale=0.5,
-                                thickness=1,
-                                color=(255, 255, 255)
-                            )
-                            cv2.imshow('default', vis_img[..., ::-1])
+                        #     text = 'Episode: {}, Time: {:.1f}'.format(
+                        #         episode_id, time.monotonic() - t_start
+                        #     )
+                        #     cv2.putText(
+                        #         vis_img,
+                        #         text,
+                        #         (10, 20),
+                        #         fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                        #         fontScale=0.5,
+                        #         thickness=1,
+                        #         color=(255, 255, 255)
+                        #     )
+                        #     cv2.imshow('default', vis_img[..., ::-1])
 
                         _ = cv2.pollKey()
                         press_events = key_counter.get_press_events()
