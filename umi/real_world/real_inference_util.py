@@ -259,6 +259,27 @@ def get_real_umi_action(
         # Convert action to pose
         action_pose = mat_to_pose(action_mat)
 
+        # R_z_180 = np.array([
+        #     [-1, 0, 0],
+        #     [ 0,-1, 0],
+        #     [ 0, 0, 1],
+        # ], dtype=np.float64)
+
+        # T_z_180 = np.eye(4, dtype=np.float64)
+        # T_z_180[:3, :3] = R_z_180
+
+        # # action_mat is (..., 4, 4)
+        # action_mat = convert_pose_mat_rep(
+        #     action_pose_mat,
+        #     base_pose_mat=pose_mat,
+        #     pose_rep=action_pose_repr,
+        #     backward=True)
+
+        # # rotate into the desired world frame
+        # action_mat = T_z_180 @ action_mat
+
+        # action_pose = mat_to_pose(action_mat)
+
         # Convert action to stiffness
         action_stiffness = chol_to_stiffness(action_chol)
 
