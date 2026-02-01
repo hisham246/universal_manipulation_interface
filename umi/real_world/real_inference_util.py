@@ -168,32 +168,32 @@ def get_real_umi_obs_dict(
     # generate relative pose
     for robot_prefix in robot_prefix_map.keys():
         # convert pose to mat
-        # pose_mat = pose_to_mat(np.concatenate([
-        #     env_obs[robot_prefix + '_eef_pos'],
-        #     env_obs[robot_prefix + '_eef_rot_axis_angle']
-        # ], axis=-1))
-
-        # # solve reltaive obs
-        # obs_pose_mat = convert_pose_mat_rep(
-        #     pose_mat, 
-        #     base_pose_mat=pose_mat[-1],
-        #     pose_rep=obs_pose_repr,
-        #     backward=False)
-
-        pose_mat_real = pose_to_mat(np.concatenate([
+        pose_mat = pose_to_mat(np.concatenate([
             env_obs[robot_prefix + '_eef_pos'],
             env_obs[robot_prefix + '_eef_rot_axis_angle']
         ], axis=-1))
 
-        # convert whole history to model frame
-        pose_mat = real_pose_mat_to_model_pose_mat(pose_mat_real)
-
+        # solve reltaive obs
         obs_pose_mat = convert_pose_mat_rep(
-            pose_mat,
+            pose_mat, 
             base_pose_mat=pose_mat[-1],
             pose_rep=obs_pose_repr,
-            backward=False
-        )
+            backward=False)
+
+        # pose_mat_real = pose_to_mat(np.concatenate([
+        #     env_obs[robot_prefix + '_eef_pos'],
+        #     env_obs[robot_prefix + '_eef_rot_axis_angle']
+        # ], axis=-1))
+
+        # # convert whole history to model frame
+        # pose_mat = real_pose_mat_to_model_pose_mat(pose_mat_real)
+
+        # obs_pose_mat = convert_pose_mat_rep(
+        #     pose_mat,
+        #     base_pose_mat=pose_mat[-1],
+        #     pose_rep=obs_pose_repr,
+        #     backward=False
+        # )
 
         obs_pose = mat_to_pose10d(obs_pose_mat)
         obs_dict_np[robot_prefix + '_eef_pos'] = obs_pose[...,:3]
@@ -211,52 +211,52 @@ def get_real_umi_obs_dict(
         for other_robot_id in range(n_robots):
             if robot_id == other_robot_id:
                 continue
-            # tx_robotb_tcpb = pose_to_mat(np.concatenate([
-            #     env_obs[f'robot{other_robot_id}_eef_pos'],
-            #     env_obs[f'robot{other_robot_id}_eef_rot_axis_angle']
-            # ], axis=-1))
-            # tx_robota_robotb = tx_robot1_robot0
-            # if robot_id == 0:
-            #     tx_robota_robotb = np.linalg.inv(tx_robot1_robot0)
-            # tx_robota_tcpb = tx_robota_robotb @ tx_robotb_tcpb
-
-            # rel_obs_pose_mat = convert_pose_mat_rep(
-            #     tx_robota_tcpa,
-            #     base_pose_mat=tx_robota_tcpb[-1],
-            #     pose_rep='relative',
-            #     backward=False)
-            # rel_obs_pose = mat_to_pose10d(rel_obs_pose_mat)
-            # obs_dict_np[f'robot{robot_id}_eef_pos_wrt{other_robot_id}'] = rel_obs_pose[:,:3]
-            # obs_dict_np[f'robot{robot_id}_eef_rot_axis_angle_wrt{other_robot_id}'] = rel_obs_pose[:,3:]
-
-            tx_robota_tcpa_real = pose_to_mat(np.concatenate([
-                env_obs[f'robot{robot_id}_eef_pos'],
-                env_obs[f'robot{robot_id}_eef_rot_axis_angle']
-            ], axis=-1))
-            tx_robota_tcpa = real_pose_mat_to_model_pose_mat(tx_robota_tcpa_real)
-
-            tx_robotb_tcpb_real = pose_to_mat(np.concatenate([
+            tx_robotb_tcpb = pose_to_mat(np.concatenate([
                 env_obs[f'robot{other_robot_id}_eef_pos'],
                 env_obs[f'robot{other_robot_id}_eef_rot_axis_angle']
             ], axis=-1))
-            tx_robotb_tcpb = real_pose_mat_to_model_pose_mat(tx_robotb_tcpb_real)
-
-            # if you use robot-to-robot transform, it must be in the same frame too
             tx_robota_robotb = tx_robot1_robot0
-            if tx_robota_robotb is not None:
-                tx_robota_robotb = real_pose_mat_to_model_pose_mat(tx_robota_robotb)
-
             if robot_id == 0:
-                tx_robota_robotb = np.linalg.inv(tx_robota_robotb)
-
+                tx_robota_robotb = np.linalg.inv(tx_robot1_robot0)
             tx_robota_tcpb = tx_robota_robotb @ tx_robotb_tcpb
 
             rel_obs_pose_mat = convert_pose_mat_rep(
                 tx_robota_tcpa,
                 base_pose_mat=tx_robota_tcpb[-1],
                 pose_rep='relative',
-                backward=False
-            )
+                backward=False)
+            rel_obs_pose = mat_to_pose10d(rel_obs_pose_mat)
+            obs_dict_np[f'robot{robot_id}_eef_pos_wrt{other_robot_id}'] = rel_obs_pose[:,:3]
+            obs_dict_np[f'robot{robot_id}_eef_rot_axis_angle_wrt{other_robot_id}'] = rel_obs_pose[:,3:]
+
+            # tx_robota_tcpa_real = pose_to_mat(np.concatenate([
+            #     env_obs[f'robot{robot_id}_eef_pos'],
+            #     env_obs[f'robot{robot_id}_eef_rot_axis_angle']
+            # ], axis=-1))
+            # tx_robota_tcpa = real_pose_mat_to_model_pose_mat(tx_robota_tcpa_real)
+
+            # tx_robotb_tcpb_real = pose_to_mat(np.concatenate([
+            #     env_obs[f'robot{other_robot_id}_eef_pos'],
+            #     env_obs[f'robot{other_robot_id}_eef_rot_axis_angle']
+            # ], axis=-1))
+            # tx_robotb_tcpb = real_pose_mat_to_model_pose_mat(tx_robotb_tcpb_real)
+
+            # # if you use robot-to-robot transform, it must be in the same frame too
+            # tx_robota_robotb = tx_robot1_robot0
+            # if tx_robota_robotb is not None:
+            #     tx_robota_robotb = real_pose_mat_to_model_pose_mat(tx_robota_robotb)
+
+            # if robot_id == 0:
+            #     tx_robota_robotb = np.linalg.inv(tx_robota_robotb)
+
+            # tx_robota_tcpb = tx_robota_robotb @ tx_robotb_tcpb
+
+            # rel_obs_pose_mat = convert_pose_mat_rep(
+            #     tx_robota_tcpa,
+            #     base_pose_mat=tx_robota_tcpb[-1],
+            #     pose_rep='relative',
+            #     backward=False
+            # )
 
 
     # generate relative pose with respect to episode start
@@ -274,28 +274,28 @@ def get_real_umi_obs_dict(
                 start_pose = episode_start_pose[robot_id]
             else:
                 start_pose = episode_start_pose
-            # start_pose_mat = pose_to_mat(start_pose)
-            # rel_obs_pose_mat = convert_pose_mat_rep(
-            #     pose_mat,
-            #     base_pose_mat=start_pose_mat,
-            #     pose_rep='relative',
-            #     backward=False)
-
-            start_pose_mat_real = pose_to_mat(start_pose)
-            start_pose_mat = real_pose_mat_to_model_pose_mat(start_pose_mat_real)
-
-            pose_mat_real = pose_to_mat(np.concatenate([
-                env_obs[f'robot{robot_id}_eef_pos'],
-                env_obs[f'robot{robot_id}_eef_rot_axis_angle']
-            ], axis=-1))
-            pose_mat = real_pose_mat_to_model_pose_mat(pose_mat_real)
-
+            start_pose_mat = pose_to_mat(start_pose)
             rel_obs_pose_mat = convert_pose_mat_rep(
                 pose_mat,
                 base_pose_mat=start_pose_mat,
                 pose_rep='relative',
-                backward=False
-            )
+                backward=False)
+
+            # start_pose_mat_real = pose_to_mat(start_pose)
+            # start_pose_mat = real_pose_mat_to_model_pose_mat(start_pose_mat_real)
+
+            # pose_mat_real = pose_to_mat(np.concatenate([
+            #     env_obs[f'robot{robot_id}_eef_pos'],
+            #     env_obs[f'robot{robot_id}_eef_rot_axis_angle']
+            # ], axis=-1))
+            # pose_mat = real_pose_mat_to_model_pose_mat(pose_mat_real)
+
+            # rel_obs_pose_mat = convert_pose_mat_rep(
+            #     pose_mat,
+            #     base_pose_mat=start_pose_mat,
+            #     pose_rep='relative',
+            #     backward=False
+            # )
 
             
             rel_obs_pose = mat_to_pose10d(rel_obs_pose_mat)
@@ -318,19 +318,19 @@ def get_real_umi_action(
     env_action = list()
     for robot_idx in range(n_robots):
         # convert pose to mat
-        # pose_mat = pose_to_mat(np.concatenate([
-        #     env_obs[f'robot{robot_idx}_eef_pos'][-1],
-        #     env_obs[f'robot{robot_idx}_eef_rot_axis_angle'][-1]
-        # ], axis=-1))
-
-        # current robot pose in real frame (single pose, 4x4)
-        pose_mat_real = pose_to_mat(np.concatenate([
+        pose_mat = pose_to_mat(np.concatenate([
             env_obs[f'robot{robot_idx}_eef_pos'][-1],
             env_obs[f'robot{robot_idx}_eef_rot_axis_angle'][-1]
         ], axis=-1))
 
-        # convert base pose to model frame
-        pose_mat_model = real_pose_mat_to_model_pose_mat(pose_mat_real)
+        # # current robot pose in real frame (single pose, 4x4)
+        # pose_mat_real = pose_to_mat(np.concatenate([
+        #     env_obs[f'robot{robot_idx}_eef_pos'][-1],
+        #     env_obs[f'robot{robot_idx}_eef_rot_axis_angle'][-1]
+        # ], axis=-1))
+
+        # # convert base pose to model frame
+        # pose_mat_model = real_pose_mat_to_model_pose_mat(pose_mat_real)
 
         start = robot_idx * 15
         action_pose10d = action[..., start:start+9]
@@ -342,33 +342,33 @@ def get_real_umi_action(
         # action_grip = action[..., start+9:start+10]
         # action_pose10d = action[..., start:start+9]
 
-        # action_pose_mat = pose10d_to_mat(action_pose10d)
+        action_pose_mat = pose10d_to_mat(action_pose10d)
 
-        # # solve relative action
-        # action_mat = convert_pose_mat_rep(
-        #     action_pose_mat, 
-        #     base_pose_mat=pose_mat,
-        #     pose_rep=action_pose_repr,
-        #     backward=True)
-
-        # # Convert action to pose
-        # action_pose = mat_to_pose(action_mat)
-
-        # policy output pose10d is in model frame representation
-        action_pose_mat_model = pose10d_to_mat(action_pose10d)
-
-        # convert model-relative -> model-absolute (or abs->abs) using model base
-        action_mat_model = convert_pose_mat_rep(
-            action_pose_mat_model,
-            base_pose_mat=pose_mat_model,
+        # solve relative action
+        action_mat = convert_pose_mat_rep(
+            action_pose_mat, 
+            base_pose_mat=pose_mat,
             pose_rep=action_pose_repr,
-            backward=True
-        )
+            backward=True)
 
-        # now convert model absolute pose to real absolute pose
-        action_mat_real = model_pose_mat_to_real_pose_mat(action_mat_model)
+        # Convert action to pose
+        action_pose = mat_to_pose(action_mat)
 
-        action_pose = mat_to_pose(action_mat_real)
+        # # policy output pose10d is in model frame representation
+        # action_pose_mat_model = pose10d_to_mat(action_pose10d)
+
+        # # convert model-relative -> model-absolute (or abs->abs) using model base
+        # action_mat_model = convert_pose_mat_rep(
+        #     action_pose_mat_model,
+        #     base_pose_mat=pose_mat_model,
+        #     pose_rep=action_pose_repr,
+        #     backward=True
+        # )
+
+        # # now convert model absolute pose to real absolute pose
+        # action_mat_real = model_pose_mat_to_real_pose_mat(action_mat_model)
+
+        # action_pose = mat_to_pose(action_mat_real)
 
         # Convert action to stiffness
         # action_stiffness = chol_to_stiffness(action_chol)
