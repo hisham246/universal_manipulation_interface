@@ -2,7 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # Load the trajectory CSV (skip the metadata rows)
-path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/vicon_quat_trimmed_3/peg_umi_quat 10.csv"
+path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/vicon_quat/peg_umi_quat 10.csv"
 df = pd.read_csv(path, skiprows=[0, 1, 2, 4])  # keeps header row, skips units row
 
 # Extract XYZ (here: TX, TY, TZ in m)

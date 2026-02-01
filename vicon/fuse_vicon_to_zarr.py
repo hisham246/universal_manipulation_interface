@@ -21,14 +21,16 @@ import pandas as pd
 from diffusion_policy.common.replay_buffer import ReplayBuffer
 from diffusion_policy.codecs.imagecodecs_numcodecs import register_codecs
 from umi.common.pose_util import pose_to_mat
+from scipy.spatial.transform import Rotation
+
 
 register_codecs()
 
 # -----------------------------------------------------------------------------
 # Paths
 # -----------------------------------------------------------------------------
-src_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/peg_in_hole_umi_with_vicon_segmented.zarr.zip"
-dst_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/peg_in_hole_umi_with_vicon_final.zarr.zip"
+src_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/peg_in_hole_umi_slam.zarr.zip"
+dst_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/peg_in_hole_umi_vicon.zarr.zip"
 vicon_dir = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/vicon_quat_resampled_to_slam_3"
 
 # -----------------------------------------------------------------------------
@@ -185,8 +187,30 @@ for ep in range(num_episodes):
     # Translation-only shift (no rotation)
     pos_tcp = pos_cam + t_shift  # (N,3)
 
+
     # Preserve original per-step orientation from dataset
     rotvec_tcp = eef_rot_orig[s:e, :].astype(np.float64, copy=False)
+
+    # ---------------------------------------------------
+    # Express pose in a new reference frame W' that is W rotated by 180deg about z.
+    # That means: p' = R^T p,  R' = R^T R
+    # For 180deg, R == R^T.
+    R_ref = np.array([
+        [-1.0,  0.0, 0.0],
+        [ 0.0, -1.0, 0.0],
+        [ 0.0,  0.0, 1.0],
+    ], dtype=np.float64)
+
+    # positions: p' = R^T p  (same as R p here)
+    pos_tcp = pos_tcp @ R_ref.T
+
+    # orientations:
+    # Your rotvec_tcp is the tool orientation in the old world (W): R_WB
+    # Convert: R_W'B = R_ref^T * R_WB
+    Rwb = Rotation.from_rotvec(rotvec_tcp)          # R_WB
+    Rref = Rotation.from_matrix(R_ref)             # R_WW'
+    Rwpb = Rref.inv() * Rwb                        # R_W'B  (since inv() == transpose)
+    rotvec_tcp = Rwpb.as_rotvec()
 
     # Write per-step eef
     eef_pos_new[s:e, :] = pos_tcp.astype(orig["robot0_eef_pos"]["dtype"], copy=False)

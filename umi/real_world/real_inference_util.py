@@ -12,19 +12,43 @@ from umi.common.pose_util import (
 from diffusion_policy.model.common.rotation_transformer import \
     RotationTransformer
 
-# # Convert Cholesky vector back to diagonal stiffness vector
-# def chol_to_stiffness(chol_vec):
-#     U = np.zeros((3, 3))
-#     U[0, 0] = chol_vec[0]
-#     U[0, 1] = chol_vec[1]
-#     U[1, 1] = chol_vec[2]
-#     U[0, 2] = chol_vec[3]
-#     U[1, 2] = chol_vec[4]
-#     U[2, 2] = chol_vec[5]
 
-#     Kx_matrix = U.T @ U
-#     stiffness_vector = np.diag(Kx_matrix)
-#     return stiffness_vector
+USE_CONST_STIFFNESS = True
+CONST_KX_TRANS = np.array([1000.0, 1000.0, 1000.0], dtype=np.float32)
+
+
+def make_T(R: np.ndarray) -> np.ndarray:
+    T = np.eye(4, dtype=np.float64)
+    T[:3, :3] = R
+    return T
+
+def change_of_basis(T_fix: np.ndarray, T_in: np.ndarray) -> np.ndarray:
+    """
+    Conjugation: T_out = T_fix @ T_in @ inv(T_fix)
+    Works with T_in shaped (...,4,4) thanks to numpy broadcasting rules
+    if T_fix is (4,4) and T_in is (...,4,4).
+    """
+    T_fix_inv = np.linalg.inv(T_fix)
+    return T_fix @ T_in @ T_fix_inv
+
+# 180 deg about +z (CCW)
+R_Z_180 = np.array([
+    [-1.0,  0.0, 0.0],
+    [ 0.0, -1.0, 0.0],
+    [ 0.0,  0.0, 1.0],
+], dtype=np.float64)
+
+T_Z_180 = make_T(R_Z_180)
+T_Z_180_INV = np.linalg.inv(T_Z_180)
+
+def real_pose_mat_to_model_pose_mat(T_real: np.ndarray) -> np.ndarray:
+    # model frame is rotated version; map real -> model
+    return change_of_basis(T_Z_180_INV, T_real)
+
+def model_pose_mat_to_real_pose_mat(T_model: np.ndarray) -> np.ndarray:
+    # map model -> real
+    return change_of_basis(T_Z_180, T_model)
+
 
 def chol_to_stiffness(chol_vec):
     chol_vec = np.asarray(chol_vec)
@@ -144,17 +168,32 @@ def get_real_umi_obs_dict(
     # generate relative pose
     for robot_prefix in robot_prefix_map.keys():
         # convert pose to mat
-        pose_mat = pose_to_mat(np.concatenate([
+        # pose_mat = pose_to_mat(np.concatenate([
+        #     env_obs[robot_prefix + '_eef_pos'],
+        #     env_obs[robot_prefix + '_eef_rot_axis_angle']
+        # ], axis=-1))
+
+        # # solve reltaive obs
+        # obs_pose_mat = convert_pose_mat_rep(
+        #     pose_mat, 
+        #     base_pose_mat=pose_mat[-1],
+        #     pose_rep=obs_pose_repr,
+        #     backward=False)
+
+        pose_mat_real = pose_to_mat(np.concatenate([
             env_obs[robot_prefix + '_eef_pos'],
             env_obs[robot_prefix + '_eef_rot_axis_angle']
         ], axis=-1))
 
-        # solve reltaive obs
+        # convert whole history to model frame
+        pose_mat = real_pose_mat_to_model_pose_mat(pose_mat_real)
+
         obs_pose_mat = convert_pose_mat_rep(
-            pose_mat, 
+            pose_mat,
             base_pose_mat=pose_mat[-1],
             pose_rep=obs_pose_repr,
-            backward=False)
+            backward=False
+        )
 
         obs_pose = mat_to_pose10d(obs_pose_mat)
         obs_dict_np[robot_prefix + '_eef_pos'] = obs_pose[...,:3]
@@ -172,23 +211,53 @@ def get_real_umi_obs_dict(
         for other_robot_id in range(n_robots):
             if robot_id == other_robot_id:
                 continue
-            tx_robotb_tcpb = pose_to_mat(np.concatenate([
+            # tx_robotb_tcpb = pose_to_mat(np.concatenate([
+            #     env_obs[f'robot{other_robot_id}_eef_pos'],
+            #     env_obs[f'robot{other_robot_id}_eef_rot_axis_angle']
+            # ], axis=-1))
+            # tx_robota_robotb = tx_robot1_robot0
+            # if robot_id == 0:
+            #     tx_robota_robotb = np.linalg.inv(tx_robot1_robot0)
+            # tx_robota_tcpb = tx_robota_robotb @ tx_robotb_tcpb
+
+            # rel_obs_pose_mat = convert_pose_mat_rep(
+            #     tx_robota_tcpa,
+            #     base_pose_mat=tx_robota_tcpb[-1],
+            #     pose_rep='relative',
+            #     backward=False)
+            # rel_obs_pose = mat_to_pose10d(rel_obs_pose_mat)
+            # obs_dict_np[f'robot{robot_id}_eef_pos_wrt{other_robot_id}'] = rel_obs_pose[:,:3]
+            # obs_dict_np[f'robot{robot_id}_eef_rot_axis_angle_wrt{other_robot_id}'] = rel_obs_pose[:,3:]
+
+            tx_robota_tcpa_real = pose_to_mat(np.concatenate([
+                env_obs[f'robot{robot_id}_eef_pos'],
+                env_obs[f'robot{robot_id}_eef_rot_axis_angle']
+            ], axis=-1))
+            tx_robota_tcpa = real_pose_mat_to_model_pose_mat(tx_robota_tcpa_real)
+
+            tx_robotb_tcpb_real = pose_to_mat(np.concatenate([
                 env_obs[f'robot{other_robot_id}_eef_pos'],
                 env_obs[f'robot{other_robot_id}_eef_rot_axis_angle']
             ], axis=-1))
+            tx_robotb_tcpb = real_pose_mat_to_model_pose_mat(tx_robotb_tcpb_real)
+
+            # if you use robot-to-robot transform, it must be in the same frame too
             tx_robota_robotb = tx_robot1_robot0
+            if tx_robota_robotb is not None:
+                tx_robota_robotb = real_pose_mat_to_model_pose_mat(tx_robota_robotb)
+
             if robot_id == 0:
-                tx_robota_robotb = np.linalg.inv(tx_robot1_robot0)
+                tx_robota_robotb = np.linalg.inv(tx_robota_robotb)
+
             tx_robota_tcpb = tx_robota_robotb @ tx_robotb_tcpb
 
             rel_obs_pose_mat = convert_pose_mat_rep(
                 tx_robota_tcpa,
                 base_pose_mat=tx_robota_tcpb[-1],
                 pose_rep='relative',
-                backward=False)
-            rel_obs_pose = mat_to_pose10d(rel_obs_pose_mat)
-            obs_dict_np[f'robot{robot_id}_eef_pos_wrt{other_robot_id}'] = rel_obs_pose[:,:3]
-            obs_dict_np[f'robot{robot_id}_eef_rot_axis_angle_wrt{other_robot_id}'] = rel_obs_pose[:,3:]
+                backward=False
+            )
+
 
     # generate relative pose with respect to episode start
     if episode_start_pose is not None:
@@ -205,12 +274,29 @@ def get_real_umi_obs_dict(
                 start_pose = episode_start_pose[robot_id]
             else:
                 start_pose = episode_start_pose
-            start_pose_mat = pose_to_mat(start_pose)
+            # start_pose_mat = pose_to_mat(start_pose)
+            # rel_obs_pose_mat = convert_pose_mat_rep(
+            #     pose_mat,
+            #     base_pose_mat=start_pose_mat,
+            #     pose_rep='relative',
+            #     backward=False)
+
+            start_pose_mat_real = pose_to_mat(start_pose)
+            start_pose_mat = real_pose_mat_to_model_pose_mat(start_pose_mat_real)
+
+            pose_mat_real = pose_to_mat(np.concatenate([
+                env_obs[f'robot{robot_id}_eef_pos'],
+                env_obs[f'robot{robot_id}_eef_rot_axis_angle']
+            ], axis=-1))
+            pose_mat = real_pose_mat_to_model_pose_mat(pose_mat_real)
+
             rel_obs_pose_mat = convert_pose_mat_rep(
                 pose_mat,
                 base_pose_mat=start_pose_mat,
                 pose_rep='relative',
-                backward=False)
+                backward=False
+            )
+
             
             rel_obs_pose = mat_to_pose10d(rel_obs_pose_mat)
             # obs_dict_np[f'robot{robot_id}_eef_pos_wrt_start'] = rel_obs_pose[:,:3]
@@ -232,10 +318,19 @@ def get_real_umi_action(
     env_action = list()
     for robot_idx in range(n_robots):
         # convert pose to mat
-        pose_mat = pose_to_mat(np.concatenate([
+        # pose_mat = pose_to_mat(np.concatenate([
+        #     env_obs[f'robot{robot_idx}_eef_pos'][-1],
+        #     env_obs[f'robot{robot_idx}_eef_rot_axis_angle'][-1]
+        # ], axis=-1))
+
+        # current robot pose in real frame (single pose, 4x4)
+        pose_mat_real = pose_to_mat(np.concatenate([
             env_obs[f'robot{robot_idx}_eef_pos'][-1],
             env_obs[f'robot{robot_idx}_eef_rot_axis_angle'][-1]
         ], axis=-1))
+
+        # convert base pose to model frame
+        pose_mat_model = real_pose_mat_to_model_pose_mat(pose_mat_real)
 
         start = robot_idx * 15
         action_pose10d = action[..., start:start+9]
@@ -247,41 +342,44 @@ def get_real_umi_action(
         # action_grip = action[..., start+9:start+10]
         # action_pose10d = action[..., start:start+9]
 
-        action_pose_mat = pose10d_to_mat(action_pose10d)
+        # action_pose_mat = pose10d_to_mat(action_pose10d)
 
-        # solve relative action
-        action_mat = convert_pose_mat_rep(
-            action_pose_mat, 
-            base_pose_mat=pose_mat,
-            pose_rep=action_pose_repr,
-            backward=True)
-
-        # Convert action to pose
-        action_pose = mat_to_pose(action_mat)
-
-        # R_z_180 = np.array([
-        #     [-1, 0, 0],
-        #     [ 0,-1, 0],
-        #     [ 0, 0, 1],
-        # ], dtype=np.float64)
-
-        # T_z_180 = np.eye(4, dtype=np.float64)
-        # T_z_180[:3, :3] = R_z_180
-
-        # # action_mat is (..., 4, 4)
+        # # solve relative action
         # action_mat = convert_pose_mat_rep(
-        #     action_pose_mat,
+        #     action_pose_mat, 
         #     base_pose_mat=pose_mat,
         #     pose_rep=action_pose_repr,
         #     backward=True)
 
-        # # rotate into the desired world frame
-        # action_mat = T_z_180 @ action_mat
-
+        # # Convert action to pose
         # action_pose = mat_to_pose(action_mat)
 
+        # policy output pose10d is in model frame representation
+        action_pose_mat_model = pose10d_to_mat(action_pose10d)
+
+        # convert model-relative -> model-absolute (or abs->abs) using model base
+        action_mat_model = convert_pose_mat_rep(
+            action_pose_mat_model,
+            base_pose_mat=pose_mat_model,
+            pose_rep=action_pose_repr,
+            backward=True
+        )
+
+        # now convert model absolute pose to real absolute pose
+        action_mat_real = model_pose_mat_to_real_pose_mat(action_mat_model)
+
+        action_pose = mat_to_pose(action_mat_real)
+
         # Convert action to stiffness
-        action_stiffness = chol_to_stiffness(action_chol)
+        # action_stiffness = chol_to_stiffness(action_chol)
+
+        if USE_CONST_STIFFNESS:
+            # action_pose has shape (T, 6), so match stiffness to (T, 3)
+            T = action_pose.shape[0] if action_pose.ndim == 2 else 1
+            action_stiffness = np.tile(CONST_KX_TRANS[None, :], (T, 1))
+        else:
+            action_stiffness = chol_to_stiffness(action_chol)
+
 
         env_action.append(action_pose)
         env_action.append(action_stiffness)
