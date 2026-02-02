@@ -20,7 +20,7 @@ def main():
 
     dev_video_path = '/dev/video0'
 
-    # enumerate UBS device to find AVerMedia Capture Card
+    # enumerate USB device to find AVerMedia Capture Card
     device_list = create_usb_list()
     dev_usb_path = None
     for dev in device_list:

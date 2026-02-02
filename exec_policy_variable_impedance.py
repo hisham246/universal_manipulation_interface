@@ -468,7 +468,7 @@ def main(
 ):
 
     # Diffusion UNet ckpt
-    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/peg_in_hole_umi_vicon_vic_16_actions.ckpt'
+    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/peg_in_hole_umi_vicon_vic_8_actions.ckpt'
 
     payload = torch.load(open(ckpt_path, 'rb'), map_location='cpu', pickle_module=dill)
     cfg = payload['cfg']

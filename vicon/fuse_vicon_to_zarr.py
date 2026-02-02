@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """
-Overwrite robot0_eef_pos using Vicon camera positions + a constant translation shift,
-while keeping robot0_eef_rot_axis_angle exactly as-is from the original dataset.
-Then recompute robot0_demo_start_pose / robot0_demo_end_pose using meta/episode_ends.
+Overwrite robot0_eef_pos using Vicon camera positions mapped into SLAM axes,
+then add a constant translation shift t_shift that is ALREADY expressed in SLAM axes.
 
-Key behavior:
-- No rotations are applied at all (no R(t)*t_cam_tcp, no smoothing).
-- The Vicon camera trajectory is simply shifted by a constant vector:
-    pos_tcp[t] = pos_cam[t] + t_shift
-- Orientation is preserved from the original dataset:
+Keep robot0_eef_rot_axis_angle exactly as-is from the original SLAM dataset.
+Recompute robot0_demo_start_pose / robot0_demo_end_pose using meta/episode_ends.
+
+Key behavior (per your clarified intent):
+- Vicon positions are in Vicon world axes; convert them to SLAM world axes first:
+    pos_cam_slam = pos_cam_vicon @ R_vicon_to_slam.T
+- Then apply constant translation shift in SLAM axes:
+    pos_tcp_slam = pos_cam_slam + t_shift_slam
+- Orientation stays exactly the original SLAM tcp orientation:
     rotvec_tcp[t] = original_robot0_eef_rot_axis_angle[t]
 """
 
@@ -21,8 +24,6 @@ import pandas as pd
 from diffusion_policy.common.replay_buffer import ReplayBuffer
 from diffusion_policy.codecs.imagecodecs_numcodecs import register_codecs
 from umi.common.pose_util import pose_to_mat
-from scipy.spatial.transform import Rotation
-
 
 register_codecs()
 
@@ -30,7 +31,7 @@ register_codecs()
 # Paths
 # -----------------------------------------------------------------------------
 src_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/peg_in_hole_umi_slam.zarr.zip"
-dst_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/peg_in_hole_umi_vicon.zarr.zip"
+dst_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/peg_in_hole_umi_vicon_3.zarr.zip"
 vicon_dir = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/vicon_quat_resampled_to_slam_3"
 
 # -----------------------------------------------------------------------------
@@ -46,10 +47,20 @@ one_based = True
 # -----------------------------------------------------------------------------
 vicon_pos_scale = 1e-3  # mm -> m
 
-# Constant translation shift (NO rotation). This script applies it directly in the SAME frame as pos_cam.
-pose_cam_tcp = np.array([0.01938062, -0.19540817, -0.09206965, 0.0, 0.0, 0.0], dtype=np.float64)
+# This vector is in SLAM axis convention (your clarification)
+pose_cam_tcp = np.array(
+    [-0.01938062, 0.19540817, -0.09206965, 0.0, 0.0, 0.0],
+    dtype=np.float64
+)
 T_cam_tcp = pose_to_mat(pose_cam_tcp)
-t_shift = T_cam_tcp[:3, 3].copy()
+t_shift_slam = T_cam_tcp[:3, 3].copy()  # (3,)
+
+# Vicon world axes -> SLAM world axes (your observed 180deg about Z)
+R_vicon_to_slam = np.array([
+    [-1.0,  0.0, 0.0],
+    [ 0.0, -1.0, 0.0],
+    [ 0.0,  0.0, 1.0],
+], dtype=np.float64)
 
 def natural_key(s: str):
     return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", s)]
@@ -67,15 +78,17 @@ def read_vicon_csv(vicon_csv_path: pathlib.Path) -> pd.DataFrame:
 
     df = pd.read_csv(vicon_csv_path, skiprows=header_idx)
     df.columns = [c.strip() for c in df.columns]
+
     required = ["Frame", "Sub Frame", "TX", "TY", "TZ"]
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise RuntimeError(f"Missing columns {missing} in {vicon_csv_path}")
+
     return df
 
 def vicon_df_to_pos(df: pd.DataFrame, pos_scale: float) -> np.ndarray:
-    pos = df[["TX", "TY", "TZ"]].to_numpy(dtype=np.float64) * pos_scale
-    return pos
+    # (N,3) in Vicon world axes
+    return df[["TX", "TY", "TZ"]].to_numpy(dtype=np.float64) * pos_scale
 
 def get_vicon_csv_for_episode(ep: int, vicon_dir_path: pathlib.Path, csv_list_sorted=None) -> pathlib.Path:
     if use_pattern:
@@ -86,27 +99,6 @@ def get_vicon_csv_for_episode(ep: int, vicon_dir_path: pathlib.Path, csv_list_so
         if ep < 0 or ep >= len(csv_list_sorted):
             raise RuntimeError(f"Episode {ep} out of range for vicon csv list (len={len(csv_list_sorted)})")
         return vicon_dir_path / csv_list_sorted[ep]
-
-def alpha_beta_filter_pos(pos_meas: np.ndarray, hz: float, kp: float, kv: float) -> np.ndarray:
-    """
-    Alpha-beta filter on position:
-      pred = x + v*dt
-      err = meas - pred
-      x = pred + kp*err
-      v = v + (kv/dt)*err
-    """
-    dt = 1.0 / hz
-    x = pos_meas[0].copy()
-    v = np.zeros(3, dtype=np.float64)
-    out = np.empty_like(pos_meas)
-    out[0] = x
-    for k in range(1, len(pos_meas)):
-        pred = x + v * dt
-        err = pos_meas[k] - pred
-        x = pred + kp * err
-        v = v + (kv / dt) * err
-        out[k] = x
-    return out
 
 # -----------------------------------------------------------------------------
 # Main
@@ -135,7 +127,6 @@ with zarr.ZipStore(src_path, mode="r") as src_store:
         "robot0_demo_start_pose",
         "robot0_demo_end_pose",
     ]
-    # We keep robot0_eef_rot_axis_angle as-is (read from original and rewrite identical values for completeness).
     keys_to_read_keep = ["robot0_eef_rot_axis_angle"]
 
     orig = {}
@@ -147,7 +138,8 @@ with zarr.ZipStore(src_path, mode="r") as src_store:
     assert episode_ends_idx[-1] == T_data, f"episode_ends last={episode_ends_idx[-1]} != T={T_data}"
 
 print(f"Loaded meta: num_episodes={num_episodes}, T={episode_ends_idx[-1]}")
-print(f"Translation-only shift applied per frame: t_shift = {t_shift} (meters)")
+print(f"t_shift_slam (meters): {t_shift_slam}")
+print(f"R_vicon_to_slam:\n{R_vicon_to_slam}")
 
 # Load replay buffer into memory
 with zarr.ZipStore(src_path, mode="r") as src_store:
@@ -157,7 +149,7 @@ data = replay_buffer.data
 T = data["robot0_eef_pos"].shape[0]
 Dpose = 6
 
-# Keep original orientation exactly
+# Keep original SLAM tcp orientation exactly
 eef_rot_orig = data["robot0_eef_rot_axis_angle"][:]  # (T,3)
 
 eef_pos_new = np.empty((T, 3), dtype=orig["robot0_eef_pos"]["dtype"])
@@ -177,53 +169,39 @@ for ep in range(num_episodes):
         raise RuntimeError(f"Missing Vicon CSV for episode {ep}: {vicon_csv_path}")
 
     vdf = read_vicon_csv(vicon_csv_path)
-    pos_cam = vicon_df_to_pos(vdf, pos_scale=vicon_pos_scale)
+    pos_cam_vicon = vicon_df_to_pos(vdf, pos_scale=vicon_pos_scale)
 
-    if pos_cam.shape[0] != ep_len:
+    if pos_cam_vicon.shape[0] != ep_len:
         raise RuntimeError(
-            f"Episode {ep} length mismatch: vicon={pos_cam.shape[0]} vs ep_len={ep_len} ({vicon_csv_path})"
+            f"Episode {ep} length mismatch: vicon={pos_cam_vicon.shape[0]} vs ep_len={ep_len} ({vicon_csv_path})"
         )
 
-    # Translation-only shift (no rotation)
-    pos_tcp = pos_cam + t_shift  # (N,3)
+    # 1) Convert Vicon world axes -> SLAM world axes
+    # pos_slam = pos_vicon @ R^T  (row-vector form)
+    pos_cam_slam = pos_cam_vicon @ R_vicon_to_slam.T
 
+    # 2) Add shift already defined in SLAM axes
+    pos_tcp_slam = pos_cam_slam + t_shift_slam  # (N,3)
 
-    # Preserve original per-step orientation from dataset
+    # 3) Preserve original SLAM orientation per step (tcp orientation)
     rotvec_tcp = eef_rot_orig[s:e, :].astype(np.float64, copy=False)
 
-    # ---------------------------------------------------
-    # Express pose in a new reference frame W' that is W rotated by 180deg about z.
-    # That means: p' = R^T p,  R' = R^T R
-    # For 180deg, R == R^T.
-    R_ref = np.array([
-        [-1.0,  0.0, 0.0],
-        [ 0.0, -1.0, 0.0],
-        [ 0.0,  0.0, 1.0],
-    ], dtype=np.float64)
-
-    # positions: p' = R^T p  (same as R p here)
-    pos_tcp = pos_tcp @ R_ref.T
-
-    # orientations:
-    # Your rotvec_tcp is the tool orientation in the old world (W): R_WB
-    # Convert: R_W'B = R_ref^T * R_WB
-    Rwb = Rotation.from_rotvec(rotvec_tcp)          # R_WB
-    Rref = Rotation.from_matrix(R_ref)             # R_WW'
-    Rwpb = Rref.inv() * Rwb                        # R_W'B  (since inv() == transpose)
-    rotvec_tcp = Rwpb.as_rotvec()
-
     # Write per-step eef
-    eef_pos_new[s:e, :] = pos_tcp.astype(orig["robot0_eef_pos"]["dtype"], copy=False)
+    eef_pos_new[s:e, :] = pos_tcp_slam.astype(orig["robot0_eef_pos"]["dtype"], copy=False)
     eef_rot_new[s:e, :] = rotvec_tcp.astype(orig["robot0_eef_rot_axis_angle"]["dtype"], copy=False)
 
     # Start/end pose per step (repeat across episode)
-    start_pose = np.concatenate([pos_tcp[0], rotvec_tcp[0]], axis=0).astype(orig["robot0_demo_start_pose"]["dtype"], copy=False)
-    end_pose   = np.concatenate([pos_tcp[-1], rotvec_tcp[-1]], axis=0).astype(orig["robot0_demo_end_pose"]["dtype"],   copy=False)
+    start_pose = np.concatenate([pos_tcp_slam[0], rotvec_tcp[0]], axis=0).astype(
+        orig["robot0_demo_start_pose"]["dtype"], copy=False
+    )
+    end_pose = np.concatenate([pos_tcp_slam[-1], rotvec_tcp[-1]], axis=0).astype(
+        orig["robot0_demo_end_pose"]["dtype"], copy=False
+    )
 
     demo_start_new[s:e, :] = start_pose[None, :].repeat(ep_len, axis=0)
     demo_end_new[s:e, :]   = end_pose[None, :].repeat(ep_len, axis=0)
 
-print("Computed new eef pos (Vicon + constant shift), kept eef rot as original, recomputed demo start/end poses.")
+print("Computed new eef pos from Vicon (axes-aligned to SLAM) + constant SLAM shift; kept SLAM eef rot; recomputed demo start/end.")
 
 # Overwrite datasets
 for key in ["robot0_eef_pos", "robot0_eef_rot_axis_angle", "robot0_demo_start_pose", "robot0_demo_end_pose"]:

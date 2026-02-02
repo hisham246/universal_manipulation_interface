@@ -11,7 +11,7 @@ import time
 from multiprocessing.managers import SharedMemoryManager
 from umi.real_world.uvc_camera import UvcCamera, VideoRecorder
 from umi.common.usb_util import reset_all_elgato_devices, get_sorted_v4l_paths
-from polymetis import RobotInterface
+# from polymetis import RobotInterface
 
 
 def test():

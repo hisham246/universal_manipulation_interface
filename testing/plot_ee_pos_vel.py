@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-file_path = "/home/hisham246/uwaterloo/vidp_peg_in_hole_vicon_16_actions/robot_state_2_episode_6.csv"
+file_path = "/home/hisham246/uwaterloo/vidp_peg_in_hole_vicon_8_actions/robot_state_2_episode_4.csv"
 
 action = pd.read_csv(file_path)
 action = action.iloc[:, :7]
@@ -11,7 +11,6 @@ action = action.dropna()
 
 state = pd.read_csv(file_path)
 cols = state.columns[:19]
-print(cols)
 state = state.drop(columns=cols)
 state = state.dropna()
 

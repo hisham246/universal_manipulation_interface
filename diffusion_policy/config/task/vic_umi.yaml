@@ -8,7 +8,7 @@ obs_down_sample_steps: 3 # 3, 1
 
 low_dim_obs_horizon: 2
 img_obs_horizon: 2
-action_horizon: 8
+action_horizon: 16
 ignore_proprioception: False
 
 shape_meta: &shape_meta
@@ -83,7 +83,7 @@ shape_meta: &shape_meta
     rotation_rep: rotation_6d
 
 task_name: &task_name umi
-dataset_path: /home/h2khalil/vic_umi/VIC-UMI_Train_Data/peg_in_hole_umi_vicon_2_variable_impedance.zarr.zip
+dataset_path: /home/h2khalil/vic_umi/VIC-UMI_Train_Data/peg_in_hole_umi_vicon_3_variable_impedance.zarr.zip
 pose_repr: &pose_repr
   obs_pose_repr: relative # abs or rel
   action_pose_repr: relative # abs or rel or delta
