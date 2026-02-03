@@ -14,7 +14,7 @@ from diffusion_policy.model.common.rotation_transformer import \
 
 
 USE_CONST_STIFFNESS = False
-CONST_KX_TRANS = np.array([1000.0, 1000.0, 1000.0], dtype=np.float32)
+CONST_KX_TRANS = np.array([850.0, 850.0, 850.0], dtype=np.float32)
 
 
 def make_T(R: np.ndarray) -> np.ndarray:

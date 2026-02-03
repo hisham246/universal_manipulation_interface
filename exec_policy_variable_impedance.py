@@ -1,6 +1,6 @@
 """
 Usage:
-(umi): python exec_policy_rtc_lerobot.py -o output
+(umi): python exec_policy_variable_impedance -o output
 
 RTC architecture:
 - Actor thread that sends 1 action every dt to the robot
@@ -468,7 +468,7 @@ def main(
 ):
 
     # Diffusion UNet ckpt
-    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/peg_in_hole_umi_vicon_vic_16_actions_2.ckpt'
+    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/peg_in_hole_umi_vicon_vic_16_actions_150_epochs.ckpt'
 
     payload = torch.load(open(ckpt_path, 'rb'), map_location='cpu', pickle_module=dill)
     cfg = payload['cfg']
@@ -549,7 +549,7 @@ def main(
 
             # RTC configuration
             rtc_schedule = "exp"
-            rtc_max_guidance = 30.0
+            rtc_max_guidance = 10.0
 
             # Create workspace & policy after fork
             cls = hydra.utils.get_class(cfg._target_)
