@@ -13,7 +13,7 @@ from diffusion_policy.model.common.rotation_transformer import \
     RotationTransformer
 
 
-USE_CONST_STIFFNESS = False
+USE_CONST_STIFFNESS = True
 CONST_KX_TRANS = np.array([850.0, 850.0, 850.0], dtype=np.float32)
 
 
