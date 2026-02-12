@@ -65,6 +65,7 @@ def main(session_dir, calibration_dir):
             ]
             result = subprocess.run(cmd)
             assert result.returncode == 0
+            print(f"Map created at {map_path}")
             assert map_path.is_file()
 
         print("############# 03_batch_slam ###########")

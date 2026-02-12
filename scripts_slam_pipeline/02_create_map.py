@@ -98,6 +98,8 @@ def main(input_dir, map_path, docker_image, no_docker_pull, no_mask):
         stderr=stderr_path.open('w')
     )
     print(result)
+    if result.returncode != 0:
+        raise RuntimeError(f"ORB_SLAM3 docker crashed with code {result.returncode}")
 
 
 # %%
