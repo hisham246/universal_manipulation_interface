@@ -13,8 +13,8 @@ from scipy.spatial.transform import Slerp
 # -----------------------------
 
 VICON_DIR   = Path("/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon_v3/vicon_logs_to_csv/")     # contains vicon_1.csv ... vicon_257.csv
-EPISODE_DIR = Path("/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon_v3/camera_timestamps/")   # contains episode_1.csv ... episode_256.csv
-OUT_DIR     = Path("/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon_v3/aligned_vicon_files/")
+EPISODE_DIR = Path("/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon_v3/camera_timestamps_segmented/")   # contains episode_1.csv ... episode_256.csv
+OUT_DIR     = Path("/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon_v3/aligned_vicon_files_segmented/")
 
 TIME_MARGIN_SEC = 0.25   # crop margin around episode [start,end] when selecting vicon samples
 

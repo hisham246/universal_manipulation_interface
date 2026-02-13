@@ -80,7 +80,7 @@ def main(input, output, out_res, out_fov, compression_level,
     for ipath in input:
         ipath = pathlib.Path(os.path.expanduser(ipath)).absolute()
         demos_path = ipath.joinpath('demos')
-        plan_path = ipath.joinpath('dataset_plan.pkl')
+        plan_path = ipath.joinpath('dataset_plan_gripper_only.pkl')
         if not plan_path.is_file():
             print(f"Skipping {ipath.name}: no dataset_plan.pkl")
             continue

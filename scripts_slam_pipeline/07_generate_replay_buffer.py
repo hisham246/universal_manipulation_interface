@@ -135,8 +135,8 @@ def main(input, output, out_res, out_fov, compression_level,
                 if 'gripper_width' in key:
                     # Flatten to 1D array
                     w = val.flatten()
-                    # Find indices where width is >= 0.005
-                    trigger_indices = np.where(w >= 0.005)[0]
+                    # Find indices where width is >= 0.0075
+                    trigger_indices = np.where(w >= 0.0075)[0]
                     
                     if len(trigger_indices) > 0:
                         first_idx = trigger_indices[0]

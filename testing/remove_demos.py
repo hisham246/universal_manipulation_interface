@@ -18,11 +18,11 @@ register_codecs()
 # -----------------------------
 # CONFIG
 # -----------------------------
-src_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/peg_in_hole_umi_vicon_3.zarr.zip"
-dst_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/peg_in_hole_umi_vicon_4.zarr.zip"
+src_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon_v3/peg_in_hole_vicon.zarr.zip"
+dst_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon_v3/peg_in_hole_vicon_final.zarr.zip"
 
 # Option A: drop explicit list (0-based episode indices)
-episodes_to_drop_0based = [100, 165, 194, 239]
+episodes_to_drop_0based = [163, 164]
 
 # Option B: drop last K episodes
 # K = 10
