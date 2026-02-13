@@ -34,6 +34,8 @@ src_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/peg_in_hole_umi
 dst_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/peg_in_hole_umi_vicon_3.zarr.zip"
 vicon_dir = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/vicon_quat_resampled_to_slam_3"
 
+
+
 # -----------------------------------------------------------------------------
 # Vicon file mapping options
 # -----------------------------------------------------------------------------

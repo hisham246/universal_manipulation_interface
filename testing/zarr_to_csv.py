@@ -7,8 +7,8 @@ import os
 register_codecs()
 
 # Open the zarr dataset
-zarr_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon_v3/dataset_camera_only.zarr.zip"
-csv_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon_v3/camera_timestamps/"
+zarr_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon_v3/peg_in_hole_vicon.zarr.zip"
+csv_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon_v3/vicon/"
 os.makedirs(csv_path, exist_ok=True)
 root = zarr.open(zarr_path)
 print(root.tree())
@@ -53,9 +53,10 @@ episode_starts = np.concatenate(([0], episode_ends[:-1]))
 
 # List of data arrays to extract
 # data_keys = ["timestamp", "robot0_eef_pos", "robot0_eef_rot_axis_angle", "robot0_stiffness"]
-# data_keys = ["timestamp", "robot0_eef_pos", "robot0_eef_rot_axis_angle", "robot0_demo_start_pose", "robot0_demo_end_pose", "robot0_gripper_width"]
+data_keys = ["timestamp", "robot0_eef_pos", "robot0_eef_rot_axis_angle", "robot0_demo_start_pose", "robot0_demo_end_pose", "robot0_gripper_width"]
+data_keys = ["timestamp", "robot0_eef_pos", "robot0_eef_rot_axis_angle", "robot0_demo_start_pose", "robot0_demo_end_pose"]
 # data_keys = ["robot0_eef_pos", "robot0_eef_rot_axis_angle"]
-data_keys = ["timestamp"]
+# data_keys = ["timestamp"]
 
 
 # Iterate over episodes and extract data
