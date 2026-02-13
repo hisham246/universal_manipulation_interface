@@ -259,6 +259,7 @@ class FrankaInterpolationController(mp.Process):
             robot_state_path_1 = self.output_dir / f"robot_state_1_episode_{self.episode_id}.csv"
             robot_state_path_2 = self.output_dir / f"robot_state_2_episode_{self.episode_id}.csv"
             joint_pos_desired_path = self.output_dir / f"joint_pos_desired_episode_{self.episode_id}.csv"
+            
         else:
             robot_state_path_1 = pathlib.Path("/tmp/robot_state_1.csv")
             robot_state_path_2 = pathlib.Path("/tmp/robot_state_2.csv")

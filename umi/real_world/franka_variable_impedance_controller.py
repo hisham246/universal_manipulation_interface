@@ -39,7 +39,15 @@ class FrankaInterface:
         return np.concatenate([pos, rot_vec])
     
     def get_joint_positions(self):
-        return np.array(self.server.get_joint_positions())
+        J = np.array(self.server.get_joint_positions())
+        if J.shape != (6,7):
+            J = J.reshape((6,7))
+        return J
+
+    
+    def get_jacobian(self):
+        jacobian = self.server.get_jacobian()
+        return np.array(jacobian)
     
     def get_joint_velocities(self):
         return np.array(self.server.get_joint_velocities())
@@ -264,6 +272,9 @@ class FrankaVariableImpedanceController(mp.Process):
         # start polymetis interface
         robot = FrankaInterface(self.robot_ip, self.robot_port)
 
+        J_ROWS, J_COLS = 6, 7
+        jac_dtype = np.float32
+
         # Save data
         if self.output_dir is not None and self.episode_id is not None:
             self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -271,10 +282,32 @@ class FrankaVariableImpedanceController(mp.Process):
             robot_state_path_1 = self.output_dir / f"robot_state_1_episode_{self.episode_id}.csv"
             robot_state_path_2 = self.output_dir / f"robot_state_2_episode_{self.episode_id}.csv"
             joint_pos_desired_path = self.output_dir / f"joint_pos_desired_episode_{self.episode_id}.csv"
+            jac_data_path = self.output_dir / f"jacobian_episode_{self.episode_id}.dat"
+            jac_ts_path   = self.output_dir / f"jacobian_timestamps_episode_{self.episode_id}.npy"
+            jac_meta_path = self.output_dir / f"jacobian_meta_episode_{self.episode_id}.npz"
+
         else:
             robot_state_path_1 = pathlib.Path("/tmp/robot_state_1.csv")
             robot_state_path_2 = pathlib.Path("/tmp/robot_state_2.csv")
             joint_pos_desired_path = pathlib.Path("/tmp/joint_pos_desired.csv")
+
+            jac_data_path = pathlib.Path("/tmp/jacobian.dat")
+            jac_ts_path   = pathlib.Path("/tmp/jacobian_timestamps.npy")
+            jac_meta_path = pathlib.Path("/tmp/jacobian_meta.npz")
+
+
+        # Choose an upper bound length so we can preallocate.
+        # 5 min @ 1kHz = 300k. Add margin.
+        max_steps = 400_000
+        
+        jac_mm = np.memmap(
+            jac_data_path,
+            dtype=jac_dtype,
+            mode="w+",
+            shape=(max_steps, J_ROWS, J_COLS)
+        )
+        jac_ts = np.empty((max_steps,), dtype=np.float64)
+        jac_k = 0
 
        # Get example state to construct headers
         example_state = robot.get_robot_state()
@@ -360,6 +393,16 @@ class FrankaVariableImpedanceController(mp.Process):
 
                 # tip_pose = pose_interp(t_now)
                 # flange_pose = mat_to_pose(pose_to_mat(tip_pose) @ tx_tip_flange)
+
+                try:
+                    J = robot.get_jacobian()  # (6,7)
+                    if jac_k < max_steps:
+                        jac_mm[jac_k, :, :] = J.astype(jac_dtype, copy=False)
+                        jac_ts[jac_k] = t_now
+                        jac_k += 1
+                except Exception as e:
+                    if self.verbose:
+                        print(f"[Jacobian] read/log failed: {e}")
 
                 ee_pose = pose_interp(t_now)
 
@@ -513,6 +556,21 @@ class FrankaVariableImpedanceController(mp.Process):
                 #     print(f"[FrankaVariableImpedanceController] Actual frequency {1/(time.monotonic() - t_now)}")
 
         finally:
+            try:
+                jac_mm.flush()
+                np.save(jac_ts_path, jac_ts[:jac_k])
+                np.savez(
+                    jac_meta_path,
+                    T=np.int64(jac_k),
+                    shape=np.array([jac_k, J_ROWS, J_COLS], dtype=np.int64),
+                    dtype=np.array(str(np.dtype(jac_dtype))),
+                    data_file=np.array(jac_data_path.name),
+                    ts_file=np.array(jac_ts_path.name),
+                )
+            except Exception as e:
+                if self.verbose:
+                    print(f"[Jacobian] finalize failed: {e}")
+            
             # mandatory cleanup
             # terminate
             print('\n\n\n\nterminate_current_policy\n\n\n\n\n')
