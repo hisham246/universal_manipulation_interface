@@ -21,6 +21,7 @@ class FrankaInterface:
             "motor_torques_measured": list(data.motor_torques_measured),
             "motor_torques_external": list(data.motor_torques_external),
             "motor_torques_desired": list(data.motor_torques_desired),
+            "external_wrench_base": list(data.external_wrench_base)
         }
         return data_state_dict
     

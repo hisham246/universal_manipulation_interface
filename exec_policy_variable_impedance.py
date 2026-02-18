@@ -414,12 +414,13 @@ def actor_control_umi_thread(
     try:
         while not shutdown_event.is_set():
             loop_start = time.monotonic()
-            obs = robot_wrapper.update_observation()
+            robot_wrapper.update_observation()
             after_obs = time.monotonic()
 
             action = action_queue.get()
             if action is not None:
                 action = umi_action_processor(action)
+                print(f"[ACTOR] Executing action {action_queue.get_action_index()} from queue (qsize={action_queue.qsize()})")
                 robot_wrapper.send_action(action)
             after_action = time.monotonic()
 
@@ -468,7 +469,7 @@ def main(
 ):
 
     # Diffusion UNet ckpt
-    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/peg_in_hole_vicon_v3_vidp_8_actions.ckpt'
+    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/peg_in_hole_vicon_v3_vidp_16_actions.ckpt'
 
     payload = torch.load(open(ckpt_path, 'rb'), map_location='cpu', pickle_module=dill)
     cfg = payload['cfg']
@@ -549,7 +550,7 @@ def main(
 
             # RTC configuration
             rtc_schedule = "exp"
-            rtc_max_guidance = 10.0
+            rtc_max_guidance = 30.0
 
             # Create workspace & policy after fork
             cls = hydra.utils.get_class(cfg._target_)
