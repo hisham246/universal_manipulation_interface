@@ -38,16 +38,14 @@ class FrankaInterface:
         rot_vec = np.array(data[3:])
         return np.concatenate([pos, rot_vec])
     
-    def get_joint_positions(self):
-        J = np.array(self.server.get_joint_positions())
+    def get_jacobian(self):
+        J = np.array(self.server.get_jacobian())
         if J.shape != (6,7):
             J = J.reshape((6,7))
         return J
-
     
-    def get_jacobian(self):
-        jacobian = self.server.get_jacobian()
-        return np.array(jacobian)
+    def get_joint_positions(self):
+        return np.array(self.server.get_joint_positions())
     
     def get_joint_velocities(self):
         return np.array(self.server.get_joint_velocities())
@@ -422,9 +420,9 @@ class FrankaVariableImpedanceController(mp.Process):
                         print("[FrankaPositionalController] IK failed. Joint position not logged.")
 
                 if target_stiffness is not None:
-                    rot_stiffness = np.array([30.0, 30.0, 30.0], dtype=np.float64)
+                    rot_stiffness = np.array([15.0, 15.0, 15.0], dtype=np.float64)
                     total_stiffness = np.concatenate([target_stiffness, rot_stiffness])          # (6,)
-                    total_damping = 2.0 * 0.707 * np.sqrt(total_stiffness)                       # (6,)
+                    total_damping = 2.0 * np.sqrt(total_stiffness)                       # (6,)
                     # total_damping = self.Kxd
 
                     cmd_Kx_vec  = total_stiffness.copy()
