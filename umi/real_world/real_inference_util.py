@@ -14,7 +14,7 @@ from diffusion_policy.model.common.rotation_transformer import \
 
 
 USE_CONST_STIFFNESS = False
-CONST_KX_TRANS = np.array([850.0, 850.0, 850.0], dtype=np.float32)
+CONST_KX_TRANS = np.array([1500.0, 1500.0, 1500.0], dtype=np.float32)
 
 def swap_kx_ky(K: np.ndarray) -> np.ndarray:
     """
@@ -27,6 +27,18 @@ def swap_kx_ky(K: np.ndarray) -> np.ndarray:
     K2 = K.copy()
     K2[..., 0], K2[..., 1] = K[..., 1], K[..., 0]
     return K2
+
+def apply_xy_offset(action_pose: np.ndarray, dx: float = -0.003, dy: float = -0.002) -> np.ndarray:
+    """
+    Apply constant offsets to x and y in a pose array shaped (..., 6) where [:3] is xyz.
+    dx is added to x, dy is added to y.
+    """
+    p = np.asarray(action_pose).copy()
+    if p.shape[-1] < 2:
+        raise ValueError(f"Expected last dim >= 2 for x,y, got {p.shape}")
+    p[..., 0] += dx
+    p[..., 1] += dy
+    return p
 
 
 def make_T(R: np.ndarray) -> np.ndarray:
@@ -365,6 +377,9 @@ def get_real_umi_action(
 
         # Convert action to pose
         action_pose = mat_to_pose(action_mat)
+
+        # Apply x/y translation correction (meters)
+        # action_pose = apply_xy_offset(action_pose, dx=-0.003, dy=-0.003)
 
         # # policy output pose10d is in model frame representation
         # action_pose_mat_model = pose10d_to_mat(action_pose10d)

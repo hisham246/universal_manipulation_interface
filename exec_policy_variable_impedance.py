@@ -451,7 +451,7 @@ def actor_control_umi_thread(
 @click.option('--match_dataset', '-m', default=None, help='Dataset used to overlay and adjust initial condition')
 @click.option('--match_camera', '-mc', default=0, type=int)
 @click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
-@click.option('--steps_per_inference', '-si', default=5, type=int, help="Action horizon for inference.")
+@click.option('--steps_per_inference', '-si', default=8, type=int, help="Action horizon for inference.")
 @click.option('--max_duration', '-md', default=600, help='Max duration for each epoch in seconds.')
 @click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
 @click.option('-nm', '--no_mirror', is_flag=True, default=False)
@@ -550,7 +550,7 @@ def main(
 
             # RTC configuration
             rtc_schedule = "exp"
-            rtc_max_guidance = 30.0
+            rtc_max_guidance = 10.0
 
             # Create workspace & policy after fork
             cls = hydra.utils.get_class(cfg._target_)
