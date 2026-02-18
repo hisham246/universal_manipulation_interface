@@ -1,6 +1,6 @@
 """
 Usage:
-(umi): python exec_policy_variable_impedance -o output
+(umi): python exec_policy_variable_impedance.py -o output
 
 RTC architecture:
 - Actor thread that sends 1 action every dt to the robot
@@ -451,9 +451,9 @@ def actor_control_umi_thread(
 @click.option('--match_dataset', '-m', default=None, help='Dataset used to overlay and adjust initial condition')
 @click.option('--match_camera', '-mc', default=0, type=int)
 @click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
-@click.option('--steps_per_inference', '-si', default=8, type=int, help="Action horizon for inference.")
+@click.option('--steps_per_inference', '-si', default=4, type=int, help="Action horizon for inference.")
 @click.option('--max_duration', '-md', default=600, help='Max duration for each epoch in seconds.')
-@click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
+@click.option('--frequency', '-f', default=20, type=float, help="Control frequency in Hz.")
 @click.option('-nm', '--no_mirror', is_flag=True, default=False)
 @click.option('-sf', '--sim_fov', type=float, default=None)
 @click.option('-ci', '--camera_intrinsics', type=str, default=None)

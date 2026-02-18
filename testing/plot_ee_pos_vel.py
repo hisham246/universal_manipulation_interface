@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-file_path = "/home/hisham246/uwaterloo/high_stiffness_850_peg_in_hole_vicon_16_actions_120_epochs_test_1/robot_state_2_episode_3.csv"
+file_path = "/home/hisham246/uwaterloo/vidp_peg_in_hole_test_4/robot_state_2_episode_10.csv"
 
 action = pd.read_csv(file_path)
 action = action.iloc[:, :7]
@@ -78,7 +78,7 @@ import matplotlib.pyplot as plt
 # ------------------------------------------------------------
 # Config
 # ------------------------------------------------------------
-file_path = "/home/hisham246/uwaterloo/high_stiffness_850_peg_in_hole_vicon_16_actions_120_epochs_test_1/robot_state_2_episode_3.csv"
+file_path = "/home/hisham246/uwaterloo/vidp_peg_in_hole_test_4/robot_state_2_episode_10.csv"
 
 freq = 10.0
 dt = 1.0 / freq

@@ -14,7 +14,7 @@ from diffusion_policy.model.common.rotation_transformer import \
 
 
 USE_CONST_STIFFNESS = False
-CONST_KX_TRANS = np.array([1500.0, 1500.0, 1500.0], dtype=np.float32)
+CONST_KX_TRANS = np.array([1200.0, 1200.0, 1200.0], dtype=np.float32)
 
 def swap_kx_ky(K: np.ndarray) -> np.ndarray:
     """
