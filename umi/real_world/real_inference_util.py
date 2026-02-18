@@ -16,6 +16,18 @@ from diffusion_policy.model.common.rotation_transformer import \
 USE_CONST_STIFFNESS = False
 CONST_KX_TRANS = np.array([850.0, 850.0, 850.0], dtype=np.float32)
 
+def swap_kx_ky(K: np.ndarray) -> np.ndarray:
+    """
+    Swap Kx and Ky for stiffness vectors shaped (..., 3).
+    Works for (3,), (T,3), (B,T,3), etc.
+    """
+    K = np.asarray(K)
+    if K.shape[-1] != 3:
+        raise ValueError(f"Expected last dim = 3, got {K.shape}")
+    K2 = K.copy()
+    K2[..., 0], K2[..., 1] = K[..., 1], K[..., 0]
+    return K2
+
 
 def make_T(R: np.ndarray) -> np.ndarray:
     T = np.eye(4, dtype=np.float64)
@@ -380,7 +392,7 @@ def get_real_umi_action(
         else:
             action_stiffness = chol_to_stiffness(action_chol)
 
-
+        action_stiffness = swap_kx_ky(action_stiffness)
         env_action.append(action_pose)
         env_action.append(action_stiffness)
         # env_action.append(action_grip)
