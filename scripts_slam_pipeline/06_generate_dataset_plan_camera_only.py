@@ -37,7 +37,7 @@ def main(input_dir, output, min_episode_length, ignore_cameras):
     input_path = pathlib.Path(os.path.expanduser(input_dir)).absolute()
     demos_dir = input_path.joinpath('demos')
     if output is None:
-        output = input_path.joinpath('dataset_plan.pkl')
+        output = input_path.joinpath('dataset_plan_camera_only.pkl')
     else:
         output = pathlib.Path(os.path.expanduser(output)).absolute()
 

@@ -4,8 +4,8 @@ def natural_key(path: str):
     return [int(s) if s.isdigit() else s.lower()
             for s in re.split(r'(\d+)', os.path.basename(path))]
 
-src_path = "/home/hisham246/uwaterloo/cable_route_umi_with_vicon/vicon_logs/"
-dst_path = "/home/hisham246/uwaterloo/cable_route_umi_with_vicon/vicon_logs_to_csv/"
+src_path = "/home/hisham246/uwaterloo/cable_route_umi/vicon_logs/"
+dst_path = "/home/hisham246/uwaterloo/cable_route_umi/vicon_logs_to_csv/"
 os.makedirs(dst_path, exist_ok=True)
 
 # fields after Object_Name in the log
@@ -38,20 +38,86 @@ def discover_objects(log_path, max_lines=5000):
                 break
     return objs
 
-for in_file in files:
-    base = os.path.splitext(os.path.basename(in_file))[0]
-    out_file = os.path.join(dst_path, f"{base}.csv")
+# for in_file in files:
+#     base = os.path.splitext(os.path.basename(in_file))[0]
+#     out_file = os.path.join(dst_path, f"{base}.csv")
+
+#     # Option A: auto-detect the two objects from the file
+#     objects = discover_objects(in_file)
+
+#     # Option B (recommended if you want strict ordering):
+#     # objects = ["cable_station", "umi_cable_route"]
+
+#     if len(objects) < 2:
+#         print(f"[WARN] Found <2 objects in {in_file}: {objects}. Will still write what exists.")
+
+#     # Build CSV header: Timestamp, Frame, then per-object pose fields
+#     headers = ["Timestamp", "Frame"]
+#     for obj in objects:
+#         headers += [f"{obj}_{fld}" for fld in pose_fields]
+
+#     with open(in_file, "r", errors="ignore") as f_in, open(out_file, "w", newline="") as f_out:
+#         writer = csv.writer(f_out)
+#         writer.writerow(headers)
+
+#         current_key = None  # (Timestamp, Frame)
+#         row_data = {}       # obj -> [pos/quat 7 values]
+
+#         def flush():
+#             """Write buffered frame to CSV (pad missing objects with blanks)."""
+#             if current_key is None:
+#                 return
+#             ts, frame = current_key
+#             out_row = [ts, frame]
+#             for obj in objects:
+#                 vals = row_data.get(obj, [""] * len(pose_fields))
+#                 out_row.extend(vals)
+#             writer.writerow(out_row)
+
+#         for line in f_in:
+#             line = line.strip()
+#             if not line or not ts_line_re.match(line):
+#                 continue
+
+#             parts = [p.strip() for p in line.split(",") if p.strip() != ""]
+#             # expected: ts, frame, obj, 7 pose fields
+#             if len(parts) < 3 + len(pose_fields):
+#                 continue
+
+#             ts = parts[0]
+#             frame = parts[1]
+#             obj = parts[2]
+#             pose = parts[3:3 + len(pose_fields)]
+
+#             key = (ts, frame)
+
+#             # new frame -> flush previous
+#             if current_key is not None and key != current_key:
+#                 flush()
+#                 row_data = {}
+
+#             current_key = key
+#             row_data[obj] = pose
+
+#         # flush last buffered frame
+#         flush()
+
+    # print(f"Wrote: {out_file}")
+
+for new_idx, in_file in enumerate(files, start=1):
+    # new sequential name (choose your format)
+    # Option 1: vicon_000001.csv, vicon_000002.csv, ...
+    out_file = os.path.join(dst_path, f"vicon_{new_idx}.csv")
+
+    # (optional) keep old base in case you want to inspect later
+    old_base = os.path.splitext(os.path.basename(in_file))[0]
 
     # Option A: auto-detect the two objects from the file
     objects = discover_objects(in_file)
 
-    # Option B (recommended if you want strict ordering):
-    # objects = ["cable_station", "umi_cable_route"]
-
     if len(objects) < 2:
         print(f"[WARN] Found <2 objects in {in_file}: {objects}. Will still write what exists.")
 
-    # Build CSV header: Timestamp, Frame, then per-object pose fields
     headers = ["Timestamp", "Frame"]
     for obj in objects:
         headers += [f"{obj}_{fld}" for fld in pose_fields]
@@ -60,18 +126,16 @@ for in_file in files:
         writer = csv.writer(f_out)
         writer.writerow(headers)
 
-        current_key = None  # (Timestamp, Frame)
-        row_data = {}       # obj -> [pos/quat 7 values]
+        current_key = None
+        row_data = {}
 
         def flush():
-            """Write buffered frame to CSV (pad missing objects with blanks)."""
             if current_key is None:
                 return
             ts, frame = current_key
             out_row = [ts, frame]
             for obj in objects:
-                vals = row_data.get(obj, [""] * len(pose_fields))
-                out_row.extend(vals)
+                out_row.extend(row_data.get(obj, [""] * len(pose_fields)))
             writer.writerow(out_row)
 
         for line in f_in:
@@ -80,18 +144,13 @@ for in_file in files:
                 continue
 
             parts = [p.strip() for p in line.split(",") if p.strip() != ""]
-            # expected: ts, frame, obj, 7 pose fields
             if len(parts) < 3 + len(pose_fields):
                 continue
 
-            ts = parts[0]
-            frame = parts[1]
-            obj = parts[2]
+            ts, frame, obj = parts[0], parts[1], parts[2]
             pose = parts[3:3 + len(pose_fields)]
-
             key = (ts, frame)
 
-            # new frame -> flush previous
             if current_key is not None and key != current_key:
                 flush()
                 row_data = {}
@@ -99,7 +158,6 @@ for in_file in files:
             current_key = key
             row_data[obj] = pose
 
-        # flush last buffered frame
         flush()
 
-    print(f"Wrote: {out_file}")
+    print(f"Wrote: {out_file}    (from {old_base}.log)")

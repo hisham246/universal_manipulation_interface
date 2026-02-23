@@ -116,6 +116,31 @@ def compute_cutoff_from_episode_csv(csv_path: str, threshold: float) -> tuple[bo
 
 
 # -----------------------------
+# Skip logging
+# -----------------------------
+def log_skip(skips, session_path: pathlib.Path, episode_counter: int,
+             reason: str, **meta):
+    """
+    Record and print a skipped episode (or session if episode_counter is 0).
+    """
+    entry = {
+        "session": str(session_path),
+        "session_name": session_path.name,
+        "episode": int(episode_counter),
+        "reason": reason,
+        **meta
+    }
+    skips.append(entry)
+
+    # one-line human-readable print
+    ep_str = f"episode_{episode_counter}" if episode_counter > 0 else "session"
+    extra = ""
+    if meta:
+        # keep it compact
+        extra = " | " + ", ".join(f"{k}={v}" for k, v in meta.items())
+    print(f"[SKIP] {session_path.name} :: {ep_str} :: {reason}{extra}")
+
+# -----------------------------
 # Main
 # -----------------------------
 @click.command()
@@ -175,13 +200,19 @@ def main(
     buffer_start = 0
     all_videos = set()
     vid_args = []
+    skips = []
 
     for ipath_str in input:
         ipath = pathlib.Path(os.path.expanduser(ipath_str)).absolute()
         demos_path = ipath.joinpath("demos")
         plan_path = ipath.joinpath("dataset_plan_camera_only.pkl")
+        # if not plan_path.is_file():
+        #     print(f"Skipping {ipath.name}: no dataset_plan_camera_only.pkl")
+        #     continue
+
         if not plan_path.is_file():
-            print(f"Skipping {ipath.name}: no dataset_plan_camera_only.pkl")
+            log_skip(skips, ipath, 0, "missing dataset_plan_camera_only.pkl",
+                     plan_path=str(plan_path))
             continue
 
         plan = pickle.load(plan_path.open("rb"))
@@ -207,15 +238,33 @@ def main(
             trim_len = full_len
             csv_path = csv_dir.joinpath(f"episode_{episode_counter}.csv")
             if csv_path.is_file():
-                found_trigger, min_cutoff, csv_len = compute_cutoff_from_episode_csv(
-                    str(csv_path),
-                    threshold=gripper_threshold
-                )
+                try:
+                    found_trigger, min_cutoff, csv_len = compute_cutoff_from_episode_csv(
+                        str(csv_path),
+                        threshold=gripper_threshold
+                    )
+                except Exception as e:
+                    log_skip(
+                        skips, ipath, episode_counter,
+                        "bad_episode_csv (exception)",
+                        csv_path=str(csv_path),
+                        error=repr(e)
+                    )
+                    continue
                 effective_full = min(full_len, csv_len)
 
                 if found_trigger:
                     if min_cutoff == 0 and skip_if_trigger_at_0:
-                        # skip episode entirely
+                        log_skip(
+                            skips, ipath, episode_counter,
+                            "trigger_at_0 (skip_if_trigger_at_0=True)",
+                            csv_path=str(csv_path),
+                            threshold=gripper_threshold,
+                            min_cutoff=min_cutoff,
+                            full_len=full_len,
+                            csv_len=csv_len,
+                            effective_full=effective_full
+                        )
                         continue
                     trim_len = min(min_cutoff, effective_full)
                 else:
@@ -225,6 +274,13 @@ def main(
                 print(f"Warning: missing {csv_path} -> keeping full episode length ({full_len})")
 
             if trim_len <= 0:
+                log_skip(
+                    skips, ipath, episode_counter,
+                    "trim_len<=0",
+                    csv_path=str(csv_path),
+                    full_len=full_len,
+                    trim_len=trim_len
+                )
                 continue
 
             # Save timestamps (trimmed)
@@ -362,6 +418,23 @@ def main(
 
             completed, futures = concurrent.futures.wait(futures)
             pbar.update(len(completed))
+
+    print(f"Skipped items: {len(skips)}")
+    if len(skips) > 0:
+        # summary by reason
+        reason_counts = {}
+        for s in skips:
+            r = s["reason"]
+            reason_counts[r] = reason_counts.get(r, 0) + 1
+        print("Skip breakdown:")
+        for r, c in sorted(reason_counts.items(), key=lambda x: (-x[1], x[0])):
+            print(f"  {c:4d}  {r}")
+
+        # optional: save a json next to output
+        skip_json = output + ".skips.json"
+        with open(skip_json, "w") as f:
+            json.dump(skips, f, indent=2)
+        print(f"Saved skip report to {skip_json}")
 
     print(f"{len(all_videos)} videos used in total!")
     print(f"Saving ReplayBuffer with trimmed timestamps to {output}")
