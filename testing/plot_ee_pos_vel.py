@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-file_path = "/home/hisham246/uwaterloo/vidp_peg_in_hole_test_4/robot_state_2_episode_10.csv"
+file_path = "/home/hisham246/uwaterloo/vidp_peg_in_hole_test_4/robot_state_2_episode_0.csv"
 
 action = pd.read_csv(file_path)
 action = action.iloc[:, :7]
@@ -42,7 +42,7 @@ time_vel = time[1:-1]
 # optional light smoothing (3-sample moving average)
 cmd_vel_smooth = pd.DataFrame(cmd_vel).rolling(3, center=True).mean().to_numpy()
 act_vel_smooth = pd.DataFrame(act_vel).rolling(3, center=True).mean().to_numpy()
-fig, axes = plt.subplots(2, 3, figsize=(18, 8))
+fig, axes = plt.subplots(1, 3, figsize=(18, 8))
 axes = axes.flatten()
 labels = ['x', 'y', 'z']
 
@@ -56,15 +56,15 @@ for i in range(3):
     axes[i].grid(True)
     axes[i].legend()
 
-# Velocity
-for i in range(3):
-    axes[i+3].plot(time_vel, cmd_vel_smooth[:, i], label='Commanded Velocity')
-    axes[i+3].plot(time_vel, act_vel_smooth[:, i], label='Actual Velocity')
-    axes[i+3].set_title(f'Velocity - {labels[i]}')
-    axes[i+3].set_xlabel('Time [s]')
-    axes[i+3].set_ylabel('Velocity [m/s]')
-    axes[i+3].grid(True)
-    axes[i+3].legend()
+# # Velocity
+# for i in range(3):
+#     axes[i+3].plot(time_vel, cmd_vel_smooth[:, i], label='Commanded Velocity')
+#     axes[i+3].plot(time_vel, act_vel_smooth[:, i], label='Actual Velocity')
+#     axes[i+3].set_title(f'Velocity - {labels[i]}')
+#     axes[i+3].set_xlabel('Time [s]')
+#     axes[i+3].set_ylabel('Velocity [m/s]')
+#     axes[i+3].grid(True)
+#     axes[i+3].legend()
 
 plt.tight_layout()
 plt.show()
@@ -78,7 +78,7 @@ import matplotlib.pyplot as plt
 # ------------------------------------------------------------
 # Config
 # ------------------------------------------------------------
-file_path = "/home/hisham246/uwaterloo/vidp_peg_in_hole_test_4/robot_state_2_episode_10.csv"
+file_path = "/home/hisham246/uwaterloo/vidp_peg_in_hole_test_4/robot_state_2_episode_0.csv"
 
 freq = 10.0
 dt = 1.0 / freq
