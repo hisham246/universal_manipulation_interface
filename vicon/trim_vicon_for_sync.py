@@ -3,16 +3,16 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# csv_dir = "/home/hisham246/uwaterloo/cable_route_umi/aligned_vicon_files/aligned_vicon_to_episode/"
-csv_dir = "/home/hisham246/uwaterloo/cable_route_umi/vicon_trimmed/"
-out_dir = "/home/hisham246/uwaterloo/cable_route_umi/vicon_trimmed_2/"
+csv_dir = "/home/hisham246/uwaterloo/cable_route_umi/aligned_vicon_files/aligned_vicon_to_episode/"
+# csv_dir = "/home/hisham246/uwaterloo/cable_route_umi/vicon_trimmed/"
+out_dir = "/home/hisham246/uwaterloo/cable_route_umi/vicon_trimmed/"
 os.makedirs(out_dir, exist_ok=True)
 
 # for the speed plot only (does not affect saved values)
 SMOOTH_WIN = 5
 
 # choose trimming mode
-KEEP_AFTER_CLICK = False   # True: keep rows from clicked idx to end
+KEEP_AFTER_CLICK = True   # True: keep rows from clicked idx to end
                           # False: keep rows before clicked idx (exclude clicked idx)
 
 # columns to use for plotting/speed (adjust if your file uses different names)
@@ -133,7 +133,7 @@ def save_trimmed_exact(out_path, header, data_lines_trimmed):
 #     print("Saved:", out_path, "| kept rows:", len(trimmed), "of", len(data_lines))
 
 # csv_path = '/home/hisham246/uwaterloo/cable_route_umi/aligned_vicon_files/aligned_vicon_to_episode/aligned_episode_073.csv'
-csv_path = '/home/hisham246/uwaterloo/cable_route_umi/vicon_trimmed/aligned_episode_231.csv'
+csv_path = '/home/hisham246/uwaterloo/cable_route_umi/vicon_trimmed/aligned_episode_102.csv'
 
 base = os.path.basename(csv_path)
 out_path = os.path.join(out_dir, base)

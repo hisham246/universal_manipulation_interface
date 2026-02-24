@@ -53,6 +53,23 @@ def debug_axes(path, n=5):
     # print a few samples
     for i in np.linspace(0, len(pos)-1, num=min(n, len(pos)), dtype=int):
         print(f"i={i:5d}  tool_x={tool_x[i]}  dot={dots[i]: .3f}")
+
+def load_aligned_quat_csv(path):
+    # for files like cable_station_aligned_episode_001.csv
+    df = pd.read_csv(path)
+
+    # expected columns from your aligned export
+    cols_pos = ["Pos_X", "Pos_Y", "Pos_Z"]
+    cols_q   = ["Rot_X", "Rot_Y", "Rot_Z", "Rot_W"]
+
+    for c in cols_pos + cols_q:
+        if c not in df.columns:
+            raise ValueError(f"Missing column {c} in {path}")
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+
+    df = df.dropna(subset=cols_pos + cols_q).reset_index(drop=True)
+    return df
+
 # ----------------------------
 # Rotations
 # ----------------------------
@@ -138,6 +155,7 @@ def load_pose_sequence_auto(path):
     is_vicon = all(c in cols for c in ["TX","TY","TZ","RX","RY","RZ","RW"])
     is_ep    = all(c in cols for c in ["robot0_eef_pos_0","robot0_eef_pos_1","robot0_eef_pos_2",
                                        "robot0_eef_rot_axis_angle_0","robot0_eef_rot_axis_angle_1","robot0_eef_rot_axis_angle_2"])
+    is_aligned = all(c in cols for c in ["Pos_X","Pos_Y","Pos_Z","Rot_X","Rot_Y","Rot_Z","Rot_W"])
 
     if is_vicon:
         full = load_vicon_quat_csv(path)
@@ -157,7 +175,120 @@ def load_pose_sequence_auto(path):
         Rmats = np.stack([rotvec_to_rotmat(r) for r in rv], axis=0)
         return pos, Rmats, {"format":"episode_rotvec", "pos_scale":s, "df":full}
 
+    if is_aligned:
+        full = load_aligned_quat_csv(path)
+        pos = full[["Pos_X","Pos_Y","Pos_Z"]].to_numpy(float)
+        quat = full[["Rot_X","Rot_Y","Rot_Z","Rot_W"]].to_numpy(float)  # xyzw
+        s = guess_pos_scale_to_meters(pos)
+        pos = pos * s
+        Rmats = np.stack([quat_to_rotmat_xyzw(q) for q in quat], axis=0)
+        return pos, Rmats, {"format":"aligned_quat", "pos_scale":s, "df":full}
+
     raise ValueError(f"Could not auto-detect format for {path}\nColumns seen: {sorted(list(cols))}")
+
+def animate_episode_with_cable_station(
+    episode_path,
+    cable_station_path,
+    stride=1,
+    axis_len_ep=0.03,
+    axis_len_station=0.03,
+    interval_ms=25,
+    save_path=None
+):
+    posE, RE, metaE = load_pose_sequence_auto(episode_path)
+    posS, RS, metaS = load_pose_sequence_auto(cable_station_path)
+
+    posE = posE[::stride]; RE = RE[::stride]
+    posS = posS[::stride]; RS = RS[::stride]
+
+    nE, nS = len(posE), len(posS)
+    if nE < 2 or nS < 2:
+        raise ValueError("Not enough points to animate")
+
+    # If they are already aligned to episode timestamps, lengths match.
+    # If not, we still animate by mapping station index to episode progress.
+    n = max(nE, nS)
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection="3d")
+
+    # episode trajectory line (static)
+    ax.plot(posE[:,0], posE[:,1], posE[:,2], linewidth=2.0, label="episode trajectory")
+
+    ax.set_xlabel("X (m)")
+    ax.set_ylabel("Y (m)")
+    ax.set_zlabel("Z (m)")
+
+    all_pos = np.vstack([posE, posS])
+    set_3d_equal(ax, all_pos[:,0], all_pos[:,1], all_pos[:,2])
+    ax.legend()
+
+    # episode moving frame
+    e_x, = ax.plot([], [], [], linewidth=2)
+    e_y, = ax.plot([], [], [], linewidth=2)
+    e_z, = ax.plot([], [], [], linewidth=2)
+    e_pt, = ax.plot([], [], [], marker="o", markersize=4)
+
+    e_xt = ax.text(0, 0, 0, "E_X", fontsize=9)
+    e_yt = ax.text(0, 0, 0, "E_Y", fontsize=9)
+    e_zt = ax.text(0, 0, 0, "E_Z", fontsize=9)
+
+    # cable-station moving frame (NO path line)
+    s_x, = ax.plot([], [], [], linewidth=2)
+    s_y, = ax.plot([], [], [], linewidth=2)
+    s_z, = ax.plot([], [], [], linewidth=2)
+    s_pt, = ax.plot([], [], [], marker="o", markersize=4)
+
+    s_xt = ax.text(0, 0, 0, "S_X", fontsize=9)
+    s_yt = ax.text(0, 0, 0, "S_Y", fontsize=9)
+    s_zt = ax.text(0, 0, 0, "S_Z", fontsize=9)
+
+    def update(i):
+        # map i to episode index and station index
+        iE = min(int(round(i * (nE - 1) / (n - 1))), nE - 1) if n > 1 else 0
+        iS = min(int(round(i * (nS - 1) / (n - 1))), nS - 1) if n > 1 else 0
+
+        pE, rE = posE[iE], RE[iE]
+        pS, rS = posS[iS], RS[iS]
+
+        # episode frame
+        _set_axis_lines_and_labels(pE, rE, e_x, e_y, e_z, e_xt, e_yt, e_zt, axis_len_ep)
+        e_pt.set_data([pE[0]], [pE[1]])
+        e_pt.set_3d_properties([pE[2]])
+
+        # station frame (moving only)
+        _set_axis_lines_and_labels(pS, rS, s_x, s_y, s_z, s_xt, s_yt, s_zt, axis_len_station)
+        s_pt.set_data([pS[0]], [pS[1]])
+        s_pt.set_3d_properties([pS[2]])
+
+        # station axes in world (columns)
+        sx = rS[:, 0]
+        sy = rS[:, 1]
+        sz = rS[:, 2]
+
+        print("station x:", sx, "dot+X", sx @ np.array([1,0,0]), "dot+Y", sx @ np.array([0,1,0]))
+        print("station y:", sy, "dot+X", sy @ np.array([1,0,0]), "dot+Y", sy @ np.array([0,1,0]))
+        print("station z:", sz, "dot+Z", sz @ np.array([0,0,1]))
+
+        ax.set_title(
+            f"Episode + Cable Station\n"
+            f"episode({metaE['format']}) idx {iE}/{nE-1} | station({metaS['format']}) idx {iS}/{nS-1}"
+        )
+        return (e_x, e_y, e_z, e_pt, e_xt, e_yt, e_zt,
+                s_x, s_y, s_z, s_pt, s_xt, s_yt, s_zt)
+
+    anim = FuncAnimation(fig, update, frames=n, interval=interval_ms, blit=False)
+    plt.tight_layout()
+
+    if save_path is not None:
+        ext = os.path.splitext(save_path)[1].lower()
+        if ext == ".gif":
+            anim.save(save_path, writer="pillow", fps=max(1, int(1000/interval_ms)))
+        else:
+            anim.save(save_path, writer="ffmpeg", fps=max(1, int(1000/interval_ms)))
+        print("Saved animation to:", save_path)
+
+    plt.show()
 
 # ----------------------------
 # Axis lines + labels
@@ -330,13 +461,25 @@ def animate_overlay_two_csv(path_a, path_b, stride=1, axis_len=0.03, interval_ms
 # ----------------------------
 if __name__ == "__main__":
     # episode_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/slam_segmented/episode_1.csv"
-    episode_path = "/home/hisham246/uwaterloo/cable_route_umi/vicon_final/episode_1.csv"
+    # episode_path = "/home/hisham246/uwaterloo/cable_route_umi/vicon_final/episode_1.csv"
     # episode_path = "/home/hisham246/uwaterloo/umi/reaching_ball_multimodal/csv_filtered/episode_1.csv"
 
-    animate_single_csv(
+    # animate_single_csv(
+    #     episode_path,
+    #     stride=1,
+    #     axis_len=0.03,
+    #     interval_ms=25,
+    #     save_path=None
+    # )
+    episode_path = "/home/hisham246/uwaterloo/cable_route_umi/vicon_final/episode_2.csv"
+    cable_station_path = "/home/hisham246/uwaterloo/cable_route_umi/task_frames_cable_station/cable_station_aligned_episode_002.csv"
+
+    animate_episode_with_cable_station(
         episode_path,
+        cable_station_path,
         stride=1,
-        axis_len=0.03,
+        axis_len_ep=0.03,
+        axis_len_station=0.03,
         interval_ms=25,
         save_path=None
     )

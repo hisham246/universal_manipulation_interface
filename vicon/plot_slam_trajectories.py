@@ -15,6 +15,7 @@ data_dir = "/home/hisham246/uwaterloo/cable_route_umi/vicon_final"
 
 
 episode_files = sorted([f for f in os.listdir(data_dir) if f.startswith("episode_") and f.endswith(".csv")], key=natural_key)
+episode_files = episode_files[101:]
 
 fig = plt.figure(figsize=(10, 7))
 ax = fig.add_subplot(111, projection='3d')
