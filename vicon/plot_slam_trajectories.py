@@ -8,7 +8,7 @@ import re
 def natural_key(path):
     return [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', path)]
 
-data_dir = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon_v3/vicon_final"
+data_dir = "/home/hisham246/uwaterloo/cable_route_umi/vicon"
 # data_dir = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/vicon_4"
 
 # data_dir = "/home/hisham246/uwaterloo/umi/reaching_ball_multimodal/csv_filtered"
