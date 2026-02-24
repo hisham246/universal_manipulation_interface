@@ -166,11 +166,11 @@ register_codecs()
 # -----------------------------
 # CONFIG
 # -----------------------------
-src_path = "/home/hisham246/uwaterloo/cable_route_umi/dataset_camera_only.zarr.zip"
-dst_path = "/home/hisham246/uwaterloo/cable_route_umi/dataset_camera_only_filtered.zarr.zip"
+src_path = "/home/hisham246/uwaterloo/cable_route_umi/dataset_with_vicon_trimmed.zarr.zip"
+dst_path = "/home/hisham246/uwaterloo/cable_route_umi/dataset_with_vicon_trimmed_filtered.zarr.zip"
 
 # Option A: drop explicit list (0-based episode indices)
-episodes_to_drop_0based = [300, 301, 302, 303]
+episodes_to_drop_0based = [79]
 
 # Option B: drop last K episodes
 # K = 10
