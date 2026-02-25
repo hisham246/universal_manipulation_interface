@@ -12,9 +12,9 @@ from scipy.spatial.transform import Slerp
 # Config
 # -----------------------------
 
-VICON_DIR   = Path("/home/hisham246/uwaterloo/cable_route_umi/vicon_logs_to_csv/")     # contains vicon_1.csv ... vicon_257.csv
-EPISODE_DIR = Path("/home/hisham246/uwaterloo/cable_route_umi/timestamps_filtered/")   # contains episode_1.csv ... episode_256.csv
-OUT_DIR     = Path("/home/hisham246/uwaterloo/cable_route_umi/aligned_vicon_files_2/")
+VICON_DIR   = Path("/home/hisham246/uwaterloo/peg_in_hole_delta_umi/vicon_logs_to_csv/")     # contains vicon_1.csv ... vicon_257.csv
+EPISODE_DIR = Path("/home/hisham246/uwaterloo/peg_in_hole_delta_umi/timestamps/")   # contains episode_1.csv ... episode_256.csv
+OUT_DIR     = Path("/home/hisham246/uwaterloo/peg_in_hole_delta_umi/aligned_vicon_files/")
 
 TIME_MARGIN_SEC = 0.05   # crop margin around episode [start,end] when selecting vicon samples
 
@@ -143,20 +143,20 @@ def resample_vicon_to_episode_timestamps(vicon_df: pd.DataFrame, ep_t: np.ndarra
     clipped_frac = float(np.mean(clipped))
 
     # ---- Linear interp for position ----
-    pos_cols = ["umi_cable_route_Pos_X", "umi_cable_route_Pos_Y", "umi_cable_route_Pos_Z"]
+    pos_cols = ["umi_peg_delta_Pos_X", "umi_peg_delta_Pos_Y", "umi_peg_delta_Pos_Z"]
     for c in pos_cols:
         if c not in vicon_df.columns:
             raise ValueError(f"Missing {c} in vicon data. Columns: {vicon_df.columns.tolist()}")
-    px = vicon_df["umi_cable_route_Pos_X"].to_numpy(dtype=np.float64)
-    py = vicon_df["umi_cable_route_Pos_Y"].to_numpy(dtype=np.float64)
-    pz = vicon_df["umi_cable_route_Pos_Z"].to_numpy(dtype=np.float64)
+    px = vicon_df["umi_peg_delta_Pos_X"].to_numpy(dtype=np.float64)
+    py = vicon_df["umi_peg_delta_Pos_Y"].to_numpy(dtype=np.float64)
+    pz = vicon_df["umi_peg_delta_Pos_Z"].to_numpy(dtype=np.float64)
 
     pos_x = np.interp(t_query, vt, px)
     pos_y = np.interp(t_query, vt, py)
     pos_z = np.interp(t_query, vt, pz)
 
     # ---- SLERP for quaternion ----
-    quat_cols = ["umi_cable_route_Rot_X", "umi_cable_route_Rot_Y", "umi_cable_route_Rot_Z", "umi_cable_route_Rot_W"]
+    quat_cols = ["umi_peg_delta_Rot_X", "umi_peg_delta_Rot_Y", "umi_peg_delta_Rot_Z", "umi_peg_delta_Rot_W"]
     for c in quat_cols:
         if c not in vicon_df.columns:
             raise ValueError(f"Missing {c} in vicon data. Columns: {vicon_df.columns.tolist()}")

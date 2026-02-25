@@ -34,48 +34,48 @@ def main(session_dir):
                 out_path = input_dir.joinpath(mp4_path.name)
                 shutil.move(mp4_path, out_path)
         
-        # create mapping video if don't exist
-        mapping_vid_path = input_dir.joinpath('mapping.mp4')
-        if (not mapping_vid_path.exists()) and not(mapping_vid_path.is_symlink()):
-            max_size = -1
-            max_path = None
-            for mp4_path in list(input_dir.glob('**/*.MP4')) + list(input_dir.glob('**/*.mp4')):
-                size = mp4_path.stat().st_size
-                if size > max_size:
-                    max_size = size
-                    max_path = mp4_path
-            shutil.move(max_path, mapping_vid_path)
-            print(f"raw_videos/mapping.mp4 don't exist! Renaming largest file {max_path.name}.")
+        # # create mapping video if don't exist
+        # mapping_vid_path = input_dir.joinpath('mapping.mp4')
+        # if (not mapping_vid_path.exists()) and not(mapping_vid_path.is_symlink()):
+        #     max_size = -1
+        #     max_path = None
+        #     for mp4_path in list(input_dir.glob('**/*.MP4')) + list(input_dir.glob('**/*.mp4')):
+        #         size = mp4_path.stat().st_size
+        #         if size > max_size:
+        #             max_size = size
+        #             max_path = mp4_path
+        #     shutil.move(max_path, mapping_vid_path)
+        #     print(f"raw_videos/mapping.mp4 don't exist! Renaming largest file {max_path.name}.")
         
-        # create gripper calibration video if don't exist
-        gripper_cal_dir = input_dir.joinpath('gripper_calibration')
-        if not gripper_cal_dir.is_dir():
-            gripper_cal_dir.mkdir()
-            print("raw_videos/gripper_calibration don't exist! Creating one with the first video of each camera serial.")
+        # # create gripper calibration video if don't exist
+        # gripper_cal_dir = input_dir.joinpath('gripper_calibration')
+        # if not gripper_cal_dir.is_dir():
+        #     gripper_cal_dir.mkdir()
+        #     print("raw_videos/gripper_calibration don't exist! Creating one with the first video of each camera serial.")
             
-            serial_start_dict = dict()
-            serial_path_dict = dict()
-            with ExifToolHelper() as et:
-                for mp4_path in list(input_dir.glob('**/*.MP4')) + list(input_dir.glob('**/*.mp4')):
-                    if mp4_path.name.startswith('map'):
-                        continue
+            # serial_start_dict = dict()
+            # serial_path_dict = dict()
+            # with ExifToolHelper() as et:
+            #     for mp4_path in list(input_dir.glob('**/*.MP4')) + list(input_dir.glob('**/*.mp4')):
+            #         if mp4_path.name.startswith('map'):
+            #             continue
                     
-                    start_date = mp4_get_start_datetime(str(mp4_path))
-                    meta = list(et.get_metadata(str(mp4_path)))[0]
-                    cam_serial = meta['QuickTime:CameraSerialNumber']
+            #         start_date = mp4_get_start_datetime(str(mp4_path))
+            #         meta = list(et.get_metadata(str(mp4_path)))[0]
+            #         cam_serial = meta['QuickTime:CameraSerialNumber']
                     
-                    if cam_serial in serial_start_dict:
-                        if start_date < serial_start_dict[cam_serial]:
-                            serial_start_dict[cam_serial] = start_date
-                            serial_path_dict[cam_serial] = mp4_path
-                    else:
-                        serial_start_dict[cam_serial] = start_date
-                        serial_path_dict[cam_serial] = mp4_path
+            #         if cam_serial in serial_start_dict:
+            #             if start_date < serial_start_dict[cam_serial]:
+            #                 serial_start_dict[cam_serial] = start_date
+            #                 serial_path_dict[cam_serial] = mp4_path
+            #         else:
+            #             serial_start_dict[cam_serial] = start_date
+            #             serial_path_dict[cam_serial] = mp4_path
             
-            for serial, path in serial_path_dict.items():
-                print(f"Selected {path.name} for camera serial {serial}")
-                out_path = gripper_cal_dir.joinpath(path.name)
-                shutil.move(path, out_path)
+            # for serial, path in serial_path_dict.items():
+            #     print(f"Selected {path.name} for camera serial {serial}")
+            #     out_path = gripper_cal_dir.joinpath(path.name)
+            #     shutil.move(path, out_path)
 
         # look for mp4 video in all subdirectories in input_dir
         input_mp4_paths = list(input_dir.glob('**/*.MP4')) + list(input_dir.glob('**/*.mp4'))

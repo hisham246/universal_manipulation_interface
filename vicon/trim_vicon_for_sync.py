@@ -108,52 +108,52 @@ def save_trimmed_exact(out_path, header, data_lines_trimmed):
         f.writelines(data_lines_trimmed)
 
 
-# for csv_path in csv_files:
-#     base = os.path.basename(csv_path)
-#     out_path = os.path.join(out_dir, base)
+for csv_path in csv_files:
+    base = os.path.basename(csv_path)
+    out_path = os.path.join(out_dir, base)
 
-#     print("\n==============================")
-#     print("File:", base)
+    print("\n==============================")
+    print("File:", base)
 
-#     header, data_lines, plot_df = load_lines_and_numeric(csv_path)
+    header, data_lines, plot_df = load_lines_and_numeric(csv_path)
 
-#     trim_idx = choose_trim_index_click(
-#         plot_df,
-#         title=f"{base} — click SPEED (bottom) to choose trim index, then close window"
-#     )
+    trim_idx = choose_trim_index_click(
+        plot_df,
+        title=f"{base} — click SPEED (bottom) to choose trim index, then close window"
+    )
 
-#     if KEEP_AFTER_CLICK:
-#         # keep clicked idx and everything after
-#         trimmed = data_lines[trim_idx:]
-#     else:
-#         # keep everything before clicked idx (exclude clicked idx)
-#         trimmed = data_lines[:trim_idx]
+    if KEEP_AFTER_CLICK:
+        # keep clicked idx and everything after
+        trimmed = data_lines[trim_idx:]
+    else:
+        # keep everything before clicked idx (exclude clicked idx)
+        trimmed = data_lines[:trim_idx]
 
-#     save_trimmed_exact(out_path, header, trimmed)
-#     print("Saved:", out_path, "| kept rows:", len(trimmed), "of", len(data_lines))
+    save_trimmed_exact(out_path, header, trimmed)
+    print("Saved:", out_path, "| kept rows:", len(trimmed), "of", len(data_lines))
 
 # csv_path = '/home/hisham246/uwaterloo/cable_route_umi/aligned_vicon_files/aligned_vicon_to_episode/aligned_episode_073.csv'
-csv_path = '/home/hisham246/uwaterloo/cable_route_umi/vicon_trimmed/aligned_episode_102.csv'
+# csv_path = '/home/hisham246/uwaterloo/cable_route_umi/vicon_trimmed/aligned_episode_102.csv'
 
-base = os.path.basename(csv_path)
-out_path = os.path.join(out_dir, base)
+# base = os.path.basename(csv_path)
+# out_path = os.path.join(out_dir, base)
 
-print("\n==============================")
-print("File:", base)
+# print("\n==============================")
+# print("File:", base)
 
-header, data_lines, plot_df = load_lines_and_numeric(csv_path)
+# header, data_lines, plot_df = load_lines_and_numeric(csv_path)
 
-trim_idx = choose_trim_index_click(
-    plot_df,
-    title=f"{base} — click SPEED (bottom) to choose trim index, then close window"
-)
+# trim_idx = choose_trim_index_click(
+#     plot_df,
+#     title=f"{base} — click SPEED (bottom) to choose trim index, then close window"
+# )
 
-if KEEP_AFTER_CLICK:
-    # keep clicked idx and everything after
-    trimmed = data_lines[trim_idx:]
-else:
-    # keep everything before clicked idx (exclude clicked idx)
-    trimmed = data_lines[:trim_idx]
+# if KEEP_AFTER_CLICK:
+#     # keep clicked idx and everything after
+#     trimmed = data_lines[trim_idx:]
+# else:
+#     # keep everything before clicked idx (exclude clicked idx)
+#     trimmed = data_lines[:trim_idx]
 
-save_trimmed_exact(out_path, header, trimmed)
-print("Saved:", out_path, "| kept rows:", len(trimmed), "of", len(data_lines))
+# save_trimmed_exact(out_path, header, trimmed)
+# print("Saved:", out_path, "| kept rows:", len(trimmed), "of", len(data_lines))

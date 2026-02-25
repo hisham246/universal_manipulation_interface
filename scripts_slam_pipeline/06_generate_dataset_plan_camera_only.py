@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 import av
 from exiftool import ExifToolHelper
+from pathlib import Path
 
 ROOT_DIR = os.path.dirname(os.path.dirname(__file__))
 sys.path.append(ROOT_DIR)
@@ -27,6 +28,34 @@ os.chdir(ROOT_DIR)
 
 from umi.common.timecode_util import mp4_get_start_datetime
 
+DAY = 86400.0
+
+def normalize_epoch_day_buckets(video_meta_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Fix midnight/day-rollover bugs in MP4 start timestamps by snapping all videos
+    to the dominant epoch-day bucket (floor(ts/86400)).
+
+    This assumes all demos were recorded within the same session day (or adjacent),
+    which is true for your dataset.
+    """
+    df = video_meta_df.copy()
+    ts = df["start_timestamp"].to_numpy(np.float64)
+
+    day_bucket = np.floor(ts / DAY).astype(np.int64)
+    # dominant day (mode)
+    dominant_day = pd.Series(day_bucket).mode().iloc[0]
+
+    shifts = (dominant_day - day_bucket).astype(np.float64) * DAY  # could be ±86400, ±2*86400, ...
+    if np.any(shifts != 0):
+        print("Applying day-bucket normalization:")
+        for i, s in enumerate(shifts):
+            if s != 0:
+                vd = df.loc[df.index[i], "video_dir"]
+                print(f"  - {Path(vd).name}: shift {s:+.0f} sec")
+
+    df["start_timestamp"] = df["start_timestamp"].astype(np.float64) + shifts
+    df["end_timestamp"]   = df["end_timestamp"].astype(np.float64) + shifts
+    return df
 
 @click.command()
 @click.option('-i', '--input', 'input_dir', required=True, help='Session directory (contains demos/)')
@@ -94,6 +123,7 @@ def main(input_dir, output, min_episode_length, ignore_cameras):
         raise RuntimeError("No valid demo videos found under demos/demo_*/raw_video.mp4")
 
     video_meta_df = pd.DataFrame(rows)
+    # video_meta_df = normalize_epoch_day_buckets(video_meta_df)
     serial_count = video_meta_df['camera_serial'].value_counts()
     n_cameras = len(serial_count)
 
