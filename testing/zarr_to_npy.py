@@ -6,11 +6,10 @@ from diffusion_policy.codecs.imagecodecs_numcodecs import register_codecs
 register_codecs()
 
 # Configuration
-# zarr_path = "/home/hisham246/uwaterloo/umi/reaching_ball_multimodal/reaching_ball_multimodal.zarr.zip"
-# output_dir = "/home/hisham246/uwaterloo/umi/reaching_ball_multimodal/dataset/"
+# zarr_path = "/home/hisham246/uwaterloo/cable_route_umi/dataset_with_vicon_trimmed.zarr.zip"
+zarr_path = "/home/hisham246/uwaterloo/cup_in_the_lab.zarr.zip"
 
-zarr_path = "/home/hisham246/uwaterloo/cup_in_the_wild/cup_in_the_lab.zarr.zip"
-output_dir = "/home/hisham246/uwaterloo/cup_in_the_wild/dataset/"
+output_dir = "/home/hisham246/uwaterloo/cup_in_the_wild_dataset/"
 
 os.makedirs(output_dir, exist_ok=True)
 
@@ -27,10 +26,11 @@ episode_starts = np.concatenate(([0], episode_ends[:-1]))
 data_keys = [
     "robot0_eef_pos", 
     "robot0_eef_rot_axis_angle",
-    "robot0_gripper_width",
+    # "robot0_stiffness",
     "robot0_demo_start_pose",
     "robot0_demo_end_pose",
-    "camera0_rgb"
+    "camera0_rgb",
+    # "timestamp"
 ]
 
 print(f"Extracting {len(episode_ends)} episodes...")

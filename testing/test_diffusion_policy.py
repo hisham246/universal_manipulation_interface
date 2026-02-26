@@ -48,17 +48,23 @@ def save_episode_predictions_full_horizon(results, out_csv_path, save_raw_policy
                 # 7D format: pad with NaN for missing dimensions to match 10D structure
                 x, y, z = action[0], action[1], action[2]
                 rx, ry, rz = action[3], action[4], action[5]
-                gripper = action[6] if len(action) > 6 else 0.0
+                # gripper = action[6] if len(action) > 6 else 0.0
                 # Convert rotation vector to 6D representation (placeholder - you'd need proper conversion)
-                row = [results['timestamps'][t], h, x, y, z, rx, ry, rz, 0.0, 0.0, gripper]
+                row = [results['timestamps'][t], h, x, y, z, rx, ry, rz, 0.0, 0.0]
             
             rows.append(row)
     
     # Build DataFrame and save
+    # if save_raw_policy:
+    #     cols = ['time','horizon_step','pos_x','pos_y','pos_z','rot6d_0','rot6d_1','rot6d_2','rot6d_3','rot6d_4','rot6d_5']'
     if save_raw_policy:
-        cols = ['time','horizon_step','pos_x','pos_y','pos_z','rot6d_0','rot6d_1','rot6d_2','rot6d_3','rot6d_4','rot6d_5','gripper']
+        cols = (
+            ['time', 'horizon_step'] +
+            [f'pose10d_{i}' for i in range(9)] +
+            [f'chol_{i}' for i in range(6)]
+        )
     else:
-        cols = ['time','horizon_step','x','y','z','rx','ry','rz','pad1','pad2','gripper']
+        cols = ['time','horizon_step','x','y','z','rx','ry','rz','pad1','pad2']
     
     df = pd.DataFrame(rows, columns=cols)
     df.to_csv(out_csv_path, index=False)
@@ -106,7 +112,7 @@ class PolicyActionSimulator:
         positions = np.load(os.path.join(episode_dir, "robot0_eef_pos.npy"))
         rotations = np.load(os.path.join(episode_dir, "robot0_eef_rot_axis_angle.npy"))
         timestamps = np.load(os.path.join(episode_dir, "timestamp.npy"))
-        gripper_width = np.load(os.path.join(episode_dir, "robot0_gripper_width.npy"))
+        # gripper_width = np.load(os.path.join(episode_dir, "robot0_gripper_width.npy"))
         demo_start_pose = np.load(os.path.join(episode_dir, "robot0_demo_start_pose.npy"))
         demo_end_pose = np.load(os.path.join(episode_dir, "robot0_demo_end_pose.npy"))
         camera_rgb = np.load(os.path.join(episode_dir, "camera0_rgb.npy"))
@@ -115,7 +121,7 @@ class PolicyActionSimulator:
             'positions': positions,
             'rotations': rotations, 
             'timestamps': timestamps,
-            'gripper_width': gripper_width,
+            # 'gripper_width': gripper_width,
             'demo_start_pose': demo_start_pose,
             'demo_end_pose': demo_end_pose,
             'camera_rgb': camera_rgb
@@ -126,7 +132,7 @@ class PolicyActionSimulator:
         positions = episode_data['positions']
         rotations = episode_data['rotations']
         camera_rgb = episode_data['camera_rgb']
-        gripper_width = episode_data['gripper_width']
+        # gripper_width = episode_data['gripper_width']
         demo_start_pose = episode_data['demo_start_pose']
         
         # Get observation window
@@ -136,7 +142,7 @@ class PolicyActionSimulator:
         obs_positions = positions[start_idx:end_idx]
         obs_rotations = rotations[start_idx:end_idx]
         obs_images = camera_rgb[start_idx:end_idx]
-        obs_gripper = gripper_width[start_idx:end_idx]
+        # obs_gripper = gripper_width[start_idx:end_idx]
         
         # Pad if necessary (repeat first observation)
         if len(obs_positions) < self.obs_horizon:
@@ -153,10 +159,10 @@ class PolicyActionSimulator:
                 np.tile(obs_images[0:1], (padding_needed, 1, 1, 1)),
                 obs_images
             ])
-            obs_gripper = np.concatenate([
-                np.tile(obs_gripper[0:1], (padding_needed, 1)),
-                obs_gripper
-            ])
+            # obs_gripper = np.concatenate([
+            #     np.tile(obs_gripper[0:1], (padding_needed, 1)),
+            #     obs_gripper
+            # ])
         
         # Process images exactly like inference: uint8 -> float32 and THWC -> TCHW
         if obs_images.dtype == np.uint8:
@@ -207,8 +213,8 @@ class PolicyActionSimulator:
             'robot0_eef_pos': obs_10d[..., :3],  # 3D positions
             'robot0_eef_rot_axis_angle': obs_10d[..., 3:9],  # 6D rotations
             'robot0_eef_rot_axis_angle_wrt_start': rel_obs_pose_10d[..., 3:9],  # 6D rotations relative to start
-            'camera0_rgb': obs_images,  # Processed images TCHW format
-            'robot0_gripper_width': obs_gripper  # Gripper width
+            'camera0_rgb': obs_images  # Processed images TCHW format
+            # 'robot0_gripper_width': obs_gripper  # Gripper width
         }
         
         return obs_dict, obs_poses[-1]  # Return processed obs and current absolute pose
@@ -727,12 +733,22 @@ def process_episode_method(self, episode_dir):
 
         # Convert to executable absolute 7D using the recent env obs
         env_obs = {
-            'robot0_eef_pos': positions[max(0, t-1):t+1],
-            'robot0_eef_rot_axis_angle': rotations[max(0, t-1):t+1]
+            # make sure these are always (T,3) even at t=0
+            'robot0_eef_pos': np.atleast_2d(positions[max(0, t-1):t+1]),
+            'robot0_eef_rot_axis_angle': np.atleast_2d(rotations[max(0, t-1):t+1])
         }
+
         executable_actions = []
         for a10 in predicted_action_10d:
+            a10 = np.asarray(a10)
+            if a10.ndim == 1:
+                a10 = a10[None, :]          # <-- critical: make it (1,15)
+
             real_action = get_real_umi_action(a10, env_obs, self.action_pose_repr)
+
+            # optional: store as flat (9,) instead of (1,9)
+            real_action = np.asarray(real_action).reshape(-1)
+
             executable_actions.append(real_action)
 
         predicted_actions.append(executable_actions)
@@ -755,14 +771,14 @@ PolicyActionSimulator.process_episode = process_episode_method
 
 if __name__ == "__main__":
     # Configuration - updated for numpy array format
-    dataset_directory = "/home/hisham246/uwaterloo/umi/reaching_ball_multimodal/dataset/"
+    dataset_directory = "/home/hisham246/uwaterloo/cable_route_umi/dataset/"
     
     # Path to your trained policy checkpoint (REQUIRED)
-    policy_path = "/home/hisham246/uwaterloo/diffusion_policy_models/reaching_ball_multimodal.ckpt"
+    policy_path = "/home/hisham246/uwaterloo/diffusion_policy_models/cable_route_vidp_12_actions.ckpt"
     
     # Policy parameters (should match your trained model)
     obs_horizon = 2  # Number of observation timesteps
-    action_horizon = 8  # Number of action prediction timesteps
+    action_horizon = 12  # Number of action prediction timesteps
     
     print("="*60)
     print("POLICY ACTION PREDICTION SIMULATION")

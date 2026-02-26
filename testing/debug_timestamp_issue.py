@@ -2,8 +2,8 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 
-EP = Path("/home/hisham246/uwaterloo/peg_in_hole_delta_umi/timestamps/episode_4.csv")
-VF = Path("/home/hisham246/uwaterloo/peg_in_hole_delta_umi/vicon_logs_to_csv/vicon_4.csv")
+EP = Path("/home/hisham246/uwaterloo/peg_in_hole_delta_umi/timestamps/episode_15.csv")
+VF = Path("/home/hisham246/uwaterloo/peg_in_hole_delta_umi/vicon_logs_to_csv/vicon_15.csv")
 
 ep = pd.read_csv(EP)["timestamp"].to_numpy(np.float64)
 vd = pd.read_csv(VF, usecols=["Timestamp"])["Timestamp"].to_numpy(np.float64)

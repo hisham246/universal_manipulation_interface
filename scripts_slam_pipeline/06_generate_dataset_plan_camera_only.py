@@ -32,29 +32,58 @@ DAY = 86400.0
 
 def normalize_epoch_day_buckets(video_meta_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Fix midnight/day-rollover bugs in MP4 start timestamps by snapping all videos
-    to the dominant epoch-day bucket (floor(ts/86400)).
-
-    This assumes all demos were recorded within the same session day (or adjacent),
-    which is true for your dataset.
+    Your desired behavior:
+    - Find dominant epoch-day bucket (most frequent).
+    - Subtract 86400 seconds from ALL rows in that dominant bucket.
     """
     df = video_meta_df.copy()
     ts = df["start_timestamp"].to_numpy(np.float64)
-
     day_bucket = np.floor(ts / DAY).astype(np.int64)
-    # dominant day (mode)
-    dominant_day = pd.Series(day_bucket).mode().iloc[0]
 
-    shifts = (dominant_day - day_bucket).astype(np.float64) * DAY  # could be ±86400, ±2*86400, ...
-    if np.any(shifts != 0):
-        print("Applying day-bucket normalization:")
-        for i, s in enumerate(shifts):
-            if s != 0:
-                vd = df.loc[df.index[i], "video_dir"]
-                print(f"  - {Path(vd).name}: shift {s:+.0f} sec")
+    vc = pd.Series(day_bucket).value_counts()
+    if len(vc) <= 1:
+        return df
 
-    df["start_timestamp"] = df["start_timestamp"].astype(np.float64) + shifts
-    df["end_timestamp"]   = df["end_timestamp"].astype(np.float64) + shifts
+    dominant_day = int(vc.index[0])  # most frequent bucket
+
+    mask = (day_bucket == dominant_day)
+    print("Applying dominant-day shift (-86400s):")
+    print(f"  dominant_day={dominant_day}")
+    print(f"  shifting {mask.sum()} / {len(df)} videos by -86400 sec")
+
+    # optional: print a few
+    for vd in df.loc[mask, "video_dir"].head(10):
+        print(f"  - {Path(vd).name}")
+    if mask.sum() > 10:
+        print("  ...")
+
+    df.loc[mask, "start_timestamp"] = df.loc[mask, "start_timestamp"].astype(np.float64) - DAY
+    df.loc[mask, "end_timestamp"]   = df.loc[mask, "end_timestamp"].astype(np.float64) - DAY
+    return df
+
+def shift_after_demo_index(video_meta_df: pd.DataFrame,
+                           cutoff_demo_num: int,
+                           shift_sec: float = -DAY) -> pd.DataFrame:
+    """
+    Apply a constant shift (default -86400) to videos whose demo number >= cutoff.
+    Assumes video_dir looks like .../demos/demo_###/ (as in your dataset).
+    """
+    df = video_meta_df.copy()
+
+    # extract demo number from path name demo_14, demo_015, etc.
+    demo_nums = df["video_dir"].apply(lambda p: int(Path(p).name.split("_")[-1])).to_numpy(np.int64)
+
+    mask = demo_nums >= cutoff_demo_num
+    if mask.any():
+        print(f"Shifting {mask.sum()} videos with demo_num >= {cutoff_demo_num} by {shift_sec:+.0f} sec")
+        # optional: print a few
+        for vd in df.loc[mask, "video_dir"].head(10):
+            print(f"  - {Path(vd).name}")
+        if mask.sum() > 10:
+            print("  ...")
+
+    df.loc[mask, "start_timestamp"] = df.loc[mask, "start_timestamp"].astype(np.float64) + shift_sec
+    df.loc[mask, "end_timestamp"]   = df.loc[mask, "end_timestamp"].astype(np.float64) + shift_sec
     return df
 
 @click.command()
@@ -123,7 +152,7 @@ def main(input_dir, output, min_episode_length, ignore_cameras):
         raise RuntimeError("No valid demo videos found under demos/demo_*/raw_video.mp4")
 
     video_meta_df = pd.DataFrame(rows)
-    # video_meta_df = normalize_epoch_day_buckets(video_meta_df)
+    video_meta_df = normalize_epoch_day_buckets(video_meta_df)
     serial_count = video_meta_df['camera_serial'].value_counts()
     n_cameras = len(serial_count)
 

@@ -16,7 +16,7 @@ files = sorted(glob.glob(os.path.join(src_path, "*.log")), key=natural_key)
 # Simple check: line starts with a float timestamp
 ts_line_re = re.compile(r"^\s*-?\d+(?:\.\d+)?\s*,")
 
-# TS_SHIFT_SEC = 86400.0  # set to 0.0 to disable
+# TS_SHIFT_SEC = 0.0  # set to 0.0 to disable
 
 def discover_objects(log_path, max_lines=5000):
     """Find unique Object_Name values (usually 2) by scanning the file head."""
@@ -40,71 +40,71 @@ def discover_objects(log_path, max_lines=5000):
                 break
     return objs
 
-# for in_file in files:
-#     base = os.path.splitext(os.path.basename(in_file))[0]
-#     out_file = os.path.join(dst_path, f"{base}.csv")
+for in_file in files:
+    base = os.path.splitext(os.path.basename(in_file))[0]
+    out_file = os.path.join(dst_path, f"{base}.csv")
 
-#     # Option A: auto-detect the two objects from the file
-#     objects = discover_objects(in_file)
+    # Option A: auto-detect the two objects from the file
+    objects = discover_objects(in_file)
 
-#     # Option B (recommended if you want strict ordering):
-#     # objects = ["cable_station", "umi_cable_route"]
+    # Option B (recommended if you want strict ordering):
+    # objects = ["cable_station", "umi_cable_route"]
 
-#     if len(objects) < 2:
-#         print(f"[WARN] Found <2 objects in {in_file}: {objects}. Will still write what exists.")
+    if len(objects) < 2:
+        print(f"[WARN] Found <2 objects in {in_file}: {objects}. Will still write what exists.")
 
-#     # Build CSV header: Timestamp, Frame, then per-object pose fields
-#     headers = ["Timestamp", "Frame"]
-#     for obj in objects:
-#         headers += [f"{obj}_{fld}" for fld in pose_fields]
+    # Build CSV header: Timestamp, Frame, then per-object pose fields
+    headers = ["Timestamp", "Frame"]
+    for obj in objects:
+        headers += [f"{obj}_{fld}" for fld in pose_fields]
 
-#     with open(in_file, "r", errors="ignore") as f_in, open(out_file, "w", newline="") as f_out:
-#         writer = csv.writer(f_out)
-#         writer.writerow(headers)
+    with open(in_file, "r", errors="ignore") as f_in, open(out_file, "w", newline="") as f_out:
+        writer = csv.writer(f_out)
+        writer.writerow(headers)
 
-#         current_key = None  # (Timestamp, Frame)
-#         row_data = {}       # obj -> [pos/quat 7 values]
+        current_key = None  # (Timestamp, Frame)
+        row_data = {}       # obj -> [pos/quat 7 values]
 
-#         def flush():
-#             """Write buffered frame to CSV (pad missing objects with blanks)."""
-#             if current_key is None:
-#                 return
-#             ts, frame = current_key
-#             out_row = [ts, frame]
-#             for obj in objects:
-#                 vals = row_data.get(obj, [""] * len(pose_fields))
-#                 out_row.extend(vals)
-#             writer.writerow(out_row)
+        def flush():
+            """Write buffered frame to CSV (pad missing objects with blanks)."""
+            if current_key is None:
+                return
+            ts, frame = current_key
+            out_row = [ts, frame]
+            for obj in objects:
+                vals = row_data.get(obj, [""] * len(pose_fields))
+                out_row.extend(vals)
+            writer.writerow(out_row)
 
-#         for line in f_in:
-#             line = line.strip()
-#             if not line or not ts_line_re.match(line):
-#                 continue
+        for line in f_in:
+            line = line.strip()
+            if not line or not ts_line_re.match(line):
+                continue
 
-#             parts = [p.strip() for p in line.split(",") if p.strip() != ""]
-#             # expected: ts, frame, obj, 7 pose fields
-#             if len(parts) < 3 + len(pose_fields):
-#                 continue
+            parts = [p.strip() for p in line.split(",") if p.strip() != ""]
+            # expected: ts, frame, obj, 7 pose fields
+            if len(parts) < 3 + len(pose_fields):
+                continue
 
-#             ts = parts[0]
-#             frame = parts[1]
-#             obj = parts[2]
-#             pose = parts[3:3 + len(pose_fields)]
+            ts = parts[0]
+            frame = parts[1]
+            obj = parts[2]
+            pose = parts[3:3 + len(pose_fields)]
 
-#             key = (ts, frame)
+            key = (ts, frame)
 
-#             # new frame -> flush previous
-#             if current_key is not None and key != current_key:
-#                 flush()
-#                 row_data = {}
+            # new frame -> flush previous
+            if current_key is not None and key != current_key:
+                flush()
+                row_data = {}
 
-#             current_key = key
-#             row_data[obj] = pose
+            current_key = key
+            row_data[obj] = pose
 
-#         # flush last buffered frame
-#         flush()
+        # flush last buffered frame
+        flush()
 
-    # print(f"Wrote: {out_file}")
+    print(f"Wrote: {out_file}")
 
 # for new_idx, in_file in enumerate(files, start=1):
 #     # new sequential name (choose your format)
@@ -164,64 +164,63 @@ def discover_objects(log_path, max_lines=5000):
 #         flush()
 
 #     print(f"Wrote: {out_file}    (from {old_base}.log)")
+# SHIFT_AFTER_N = 14
+# TS_SHIFT_SEC = 86400.0  # subtract 1 day
 
-SHIFT_FIRST_N = 66
-TS_SHIFT_SEC = 86400.0  # the amount to add
+# for new_idx, in_file in enumerate(files, start=1):
+#     out_file = os.path.join(dst_path, f"vicon_{new_idx}.csv")
+#     old_base = os.path.splitext(os.path.basename(in_file))[0]
 
-for new_idx, in_file in enumerate(files, start=1):
-    out_file = os.path.join(dst_path, f"vicon_{new_idx}.csv")
-    old_base = os.path.splitext(os.path.basename(in_file))[0]
+#     objects = discover_objects(in_file)
 
-    objects = discover_objects(in_file)
+#     if len(objects) < 2:
+#         print(f"[WARN] Found <2 objects in {in_file}: {objects}. Will still write what exists.")
 
-    if len(objects) < 2:
-        print(f"[WARN] Found <2 objects in {in_file}: {objects}. Will still write what exists.")
+#     headers = ["Timestamp", "Frame"]
+#     for obj in objects:
+#         headers += [f"{obj}_{fld}" for fld in pose_fields]
 
-    headers = ["Timestamp", "Frame"]
-    for obj in objects:
-        headers += [f"{obj}_{fld}" for fld in pose_fields]
+#     # shift only for files AFTER demo 14
+#     this_shift = TS_SHIFT_SEC if new_idx > SHIFT_AFTER_N else 0.0
 
-    # choose shift for this file
-    this_shift = TS_SHIFT_SEC if new_idx <= SHIFT_FIRST_N else 0.0
+#     with open(in_file, "r", errors="ignore") as f_in, open(out_file, "w", newline="") as f_out:
+#         writer = csv.writer(f_out)
+#         writer.writerow(headers)
 
-    with open(in_file, "r", errors="ignore") as f_in, open(out_file, "w", newline="") as f_out:
-        writer = csv.writer(f_out)
-        writer.writerow(headers)
+#         current_key = None
+#         row_data = {}
 
-        current_key = None
-        row_data = {}
+#         def flush():
+#             if current_key is None:
+#                 return
+#             ts, frame = current_key
+#             out_row = [ts, frame]
+#             for obj in objects:
+#                 out_row.extend(row_data.get(obj, [""] * len(pose_fields)))
+#             writer.writerow(out_row)
 
-        def flush():
-            if current_key is None:
-                return
-            ts, frame = current_key
-            out_row = [ts, frame]
-            for obj in objects:
-                out_row.extend(row_data.get(obj, [""] * len(pose_fields)))
-            writer.writerow(out_row)
+#         for line in f_in:
+#             line = line.strip()
+#             if not line or not ts_line_re.match(line):
+#                 continue
 
-        for line in f_in:
-            line = line.strip()
-            if not line or not ts_line_re.match(line):
-                continue
+#             parts = [p.strip() for p in line.split(",") if p.strip() != ""]
+#             if len(parts) < 3 + len(pose_fields):
+#                 continue
 
-            parts = [p.strip() for p in line.split(",") if p.strip() != ""]
-            if len(parts) < 3 + len(pose_fields):
-                continue
+#             ts, frame, obj = parts[0], parts[1], parts[2]
+#             ts = str(float(ts) + this_shift)  # negative shift => subtract 86400
+#             pose = parts[3:3 + len(pose_fields)]
+#             key = (ts, frame)
 
-            ts, frame, obj = parts[0], parts[1], parts[2]
-            ts = str(float(ts) + this_shift)  # <-- shift only for first N files
-            pose = parts[3:3 + len(pose_fields)]
-            key = (ts, frame)
+#             if current_key is not None and key != current_key:
+#                 flush()
+#                 row_data = {}
 
-            if current_key is not None and key != current_key:
-                flush()
-                row_data = {}
+#             current_key = key
+#             row_data[obj] = pose
 
-            current_key = key
-            row_data[obj] = pose
+#         flush()
 
-        flush()
-
-    shift_tag = f" (shifted +{this_shift:.0f}s)" if this_shift != 0 else ""
-    print(f"Wrote: {out_file} (from {old_base}.log){shift_tag}")
+#     shift_tag = f" (shifted {this_shift:.0f}s)" if this_shift != 0 else ""
+#     print(f"Wrote: {out_file} (from {old_base}.log){shift_tag}")

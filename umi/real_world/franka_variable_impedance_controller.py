@@ -420,9 +420,9 @@ class FrankaVariableImpedanceController(mp.Process):
                         print("[FrankaPositionalController] IK failed. Joint position not logged.")
 
                 if target_stiffness is not None:
-                    rot_stiffness = np.array([40.0, 40.0, 40.0], dtype=np.float64)
+                    rot_stiffness = np.array([30.0, 30.0, 30.0], dtype=np.float64)
                     total_stiffness = np.concatenate([target_stiffness, rot_stiffness])          # (6,)
-                    total_damping = 2.0 * np.sqrt(total_stiffness)                       # (6,)
+                    total_damping = 2.0 * 0.707 * np.sqrt(total_stiffness)                       # (6,)
                     # total_damping = self.Kxd
 
                     cmd_Kx_vec  = total_stiffness.copy()

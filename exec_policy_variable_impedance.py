@@ -469,7 +469,7 @@ def main(
 ):
 
     # Diffusion UNet ckpt
-    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/peg_in_hole_vicon_v3_vidp_16_actions.ckpt'
+    ckpt_path = '/home/hisham246/uwaterloo/diffusion_policy_models/cable_route_vidp_12_actions.ckpt'
 
     payload = torch.load(open(ckpt_path, 'rb'), map_location='cpu', pickle_module=dill)
     cfg = payload['cfg']
@@ -550,7 +550,7 @@ def main(
 
             # RTC configuration
             rtc_schedule = "exp"
-            rtc_max_guidance = 10.0
+            rtc_max_guidance = 30.0
 
             # Create workspace & policy after fork
             cls = hydra.utils.get_class(cfg._target_)

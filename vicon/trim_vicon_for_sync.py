@@ -3,16 +3,19 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-csv_dir = "/home/hisham246/uwaterloo/cable_route_umi/aligned_vicon_files/aligned_vicon_to_episode/"
+csv_dir = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/aligned_vicon_files/aligned_vicon_to_episode/"
 # csv_dir = "/home/hisham246/uwaterloo/cable_route_umi/vicon_trimmed/"
-out_dir = "/home/hisham246/uwaterloo/cable_route_umi/vicon_trimmed/"
+out_dir = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/vicon_trimmed/"
 os.makedirs(out_dir, exist_ok=True)
 
 # for the speed plot only (does not affect saved values)
 SMOOTH_WIN = 5
 
+SMOOTH_POS = False    # disable smoothing for x/y/z plots
+SMOOTH_SPEED = True   # keep smoothing for speed only (set False for fully raw)
+
 # choose trimming mode
-KEEP_AFTER_CLICK = True   # True: keep rows from clicked idx to end
+KEEP_AFTER_CLICK = False   # True: keep rows from clicked idx to end
                           # False: keep rows before clicked idx (exclude clicked idx)
 
 # columns to use for plotting/speed (adjust if your file uses different names)
@@ -44,24 +47,28 @@ def load_lines_and_numeric(csv_path):
     y = pd.to_numeric(df[Y_COL], errors="coerce")
     z = pd.to_numeric(df[Z_COL], errors="coerce")
 
-    # smoothing only for visualization
-    xs = x.rolling(SMOOTH_WIN, center=True, min_periods=1).median()
-    ys = y.rolling(SMOOTH_WIN, center=True, min_periods=1).median()
-    zs = z.rolling(SMOOTH_WIN, center=True, min_periods=1).median()
+    # raw positions for plotting (no smoothing)
+    xr, yr, zr = x, y, z
 
-    # 3D speed (frame-to-frame)
+    # choose what to use for speed computation
+    if SMOOTH_SPEED and SMOOTH_WIN > 1:
+        xs = x.rolling(SMOOTH_WIN, center=True, min_periods=1).median()
+        ys = y.rolling(SMOOTH_WIN, center=True, min_periods=1).median()
+        zs = z.rolling(SMOOTH_WIN, center=True, min_periods=1).median()
+    else:
+        xs, ys, zs = x, y, z
+
     dx = xs.diff()
     dy = ys.diff()
     dz = zs.diff()
     speed = np.sqrt(dx**2 + dy**2 + dz**2).fillna(0.0)
 
     plot_df = pd.DataFrame({
-        "x": xs.to_numpy(),
-        "y": ys.to_numpy(),
-        "z": zs.to_numpy(),
+        "x": xr.to_numpy(),
+        "y": yr.to_numpy(),
+        "z": zr.to_numpy(),
         "speed": speed.to_numpy(),
     })
-
     # sanity: data_lines count should match df rows in most cases
     # if your CSV sometimes has blank lines, keep output slicing based on data_lines length
     return header, data_lines, plot_df
