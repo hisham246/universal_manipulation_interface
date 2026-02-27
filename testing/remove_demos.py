@@ -166,11 +166,11 @@ register_codecs()
 # -----------------------------
 # CONFIG
 # -----------------------------
-src_path = "/home/hisham246/uwaterloo/cable_route_umi/dataset_with_vicon_trimmed_all_stations.zarr.zip"
-dst_path = "/home/hisham246/uwaterloo/cable_route_umi/dataset_with_vicon_trimmed_filtered_all_stations.zarr.zip"
+src_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon_v3/dataset_with_vicon_segmented.zarr.zip"
+dst_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon_v3/dataset_with_vicon_segmented_filtered.zarr.zip"
 
 # Option A: drop explicit list (0-based episode indices)
-episodes_to_drop_0based = [79, 101]
+episodes_to_drop_0based = [163, 164]
 
 # Option B: drop last K episodes
 # K = 10

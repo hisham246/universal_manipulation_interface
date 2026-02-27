@@ -355,7 +355,7 @@ def animate_overlay_two_csv(path_a, path_b, stride=1, axis_len=0.03, interval_ms
 # ----------------------------
 if __name__ == "__main__":
     # episode_path = "/home/hisham246/uwaterloo/cable_route_umi/vicon_final/episode_1.csv"
-    episode_path = "/home/hisham246/uwaterloo/cable_route_umi/vicon_all_stations/episode_1.csv"
+    episode_path = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/vicon_final_test/episode_60.csv"
 
     # episode_path = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/vicon_final/episode_1.csv"
     # episode_path = "/home/hisham246/uwaterloo/umi/reaching_ball_multimodal/csv_filtered/episode_1.csv"

@@ -7,7 +7,7 @@ import pandas as pd
 
 from diffusion_policy.common.replay_buffer import ReplayBuffer
 from diffusion_policy.codecs.imagecodecs_numcodecs import register_codecs
-from umi.common.pose_util import pose_to_mat
+from umi.common.pose_util import pose_to_mat, mat_to_pose
 from scipy.spatial.transform import Rotation as R
 
 register_codecs()
@@ -15,10 +15,14 @@ register_codecs()
 # -----------------------------------------------------------------------------
 # Paths
 # -----------------------------------------------------------------------------
-SRC_ZARR = "/home/hisham246/uwaterloo/cable_route_umi/dataset_camera_only_filtered.zarr.zip"
-DST_ZARR = "/home/hisham246/uwaterloo/cable_route_umi/dataset_with_vicon_trimmed_no_blue_station.zarr.zip"
-VICON_TRIMMED_DIR = "/home/hisham246/uwaterloo/cable_route_umi/vicon_trimmed"
+# SRC_ZARR = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon_v3/dataset_camera_only_segmented.zarr.zip"
+# DST_ZARR = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon_v3/dataset_with_vicon_segmented.zarr.zip"
+# VICON_TRIMMED_DIR = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon_v3/aligned_vicon_files_segmented/aligned_vicon_to_episode"
 
+
+SRC_ZARR = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/dataset_camera_only.zarr.zip"
+DST_ZARR = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/dataset_with_vicon_trimmed_2.zarr.zip"
+VICON_TRIMMED_DIR = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/vicon_trimmed_3"
 # -----------------------------------------------------------------------------
 # Vicon CSV naming
 # -----------------------------------------------------------------------------
@@ -50,7 +54,7 @@ R_v2s = R.from_matrix(np.array([
 
 # The offset to be applied in the NEW frame
 # vicon_world_offset = np.array([0.02799, 0.206246, -0.093154], dtype=np.float64)
-vicon_world_offset = np.array([0.02799, -0.093154, -0.206246], dtype=np.float64)
+# vicon_world_offset = np.array([0.02799, -0.093154, -0.206246], dtype=np.float64)
 
 
 # -----------------------------------------------------------------------------
@@ -83,6 +87,41 @@ def ep_csv_path(ep: int, base_dir: pathlib.Path) -> pathlib.Path:
 #             quat[i] *= -1
 #     return pos, quat
 
+# def read_trimmed_vicon_csv(p: pathlib.Path):
+#     df = pd.read_csv(p)
+#     required = ["Pos_X","Pos_Y","Pos_Z","Rot_X","Rot_Y","Rot_Z","Rot_W"]
+#     for c in required:
+#         df[c] = pd.to_numeric(df[c], errors="coerce")
+#     df = df[np.isfinite(df[required]).all(axis=1)].reset_index(drop=True)
+
+#     # 1. Extract raw position (scaled to meters) and quaternions
+#     pos = df[["Pos_X","Pos_Y","Pos_Z"]].to_numpy(dtype=np.float64) * vicon_pos_scale
+#     quat = df[["Rot_X","Rot_Y","Rot_Z","Rot_W"]].to_numpy(dtype=np.float64)
+
+#     # rot_y_adj = R.from_euler('y', 20, degrees=True)
+
+#     # TRANSFORM POSITION
+#     # 1. Flip world 180 around Z, 2. Add translation
+#     pos_final = R_v2s.apply(pos) + vicon_world_offset
+
+#     # TRANSFORM ORIENTATION (The Gripper/TCP)
+#     raw_rotations = R.from_quat(quat)
+    
+#     # We apply the world-flip FIRST (to orient the sensor) 
+#     # and the local-TCP transformation LAST (to orient the tool)
+#     final_rotations = R_v2s * raw_rotations * rot_local
+
+#     # Convert to axis-angle (rotation vector) as expected by your script later
+#     rotvec_final = final_rotations.as_rotvec()
+
+#     # Normalize quaternions for continuity (if you still need quats elsewhere)
+#     quat_transformed = final_rotations.as_quat()
+#     for i in range(1, len(quat_transformed)):
+#         if np.dot(quat_transformed[i-1], quat_transformed[i]) < 0:
+#             quat_transformed[i] *= -1
+            
+#     return pos_final, rotvec_final
+
 def read_trimmed_vicon_csv(p: pathlib.Path):
     df = pd.read_csv(p)
     required = ["Pos_X","Pos_Y","Pos_Z","Rot_X","Rot_Y","Rot_Z","Rot_W"]
@@ -90,32 +129,66 @@ def read_trimmed_vicon_csv(p: pathlib.Path):
         df[c] = pd.to_numeric(df[c], errors="coerce")
     df = df[np.isfinite(df[required]).all(axis=1)].reset_index(drop=True)
 
-    # 1. Extract raw position (scaled to meters) and quaternions
-    pos = df[["Pos_X","Pos_Y","Pos_Z"]].to_numpy(dtype=np.float64) * vicon_pos_scale
-    quat = df[["Rot_X","Rot_Y","Rot_Z","Rot_W"]].to_numpy(dtype=np.float64)
+    # camera pose in Vicon world
+    pos_V_cam = df[["Pos_X","Pos_Y","Pos_Z"]].to_numpy(dtype=np.float64) * vicon_pos_scale
+    quat_V_cam = df[["Rot_X","Rot_Y","Rot_Z","Rot_W"]].to_numpy(dtype=np.float64)
+    rot_V_cam = R.from_quat(quat_V_cam)
 
-    # rot_y_adj = R.from_euler('y', 20, degrees=True)
+    # ------------------------------------------------------------
+    # Fixed camera -> TCP transform (treat offset as CAMERA-FRAME)
+    # (i.e., assumes it was defined at identity alignment)
+    # ------------------------------------------------------------
+    t_cam = np.array([-0.02799, -0.206246, -0.093154], dtype=np.float64)
 
-    # TRANSFORM POSITION
-    # 1. Flip world 180 around Z, 2. Add translation
-    pos_final = R_v2s.apply(pos) + vicon_world_offset
+    # your desired fixed TCP-axis relabel/rotation (optional)
+    # R_cam_tcp = R.from_euler("x", +90, degrees=True)
+    R_cam_tcp = R.from_euler("x", +90, degrees=True) * R.from_euler("z", 180, degrees=True)
 
-    # TRANSFORM ORIENTATION (The Gripper/TCP)
-    raw_rotations = R.from_quat(quat)
-    
-    # We apply the world-flip FIRST (to orient the sensor) 
-    # and the local-TCP transformation LAST (to orient the tool)
-    final_rotations = R_v2s * raw_rotations * rot_local
+    tx_cam_tcp = np.eye(4, dtype=np.float64)
+    tx_cam_tcp[:3, :3] = R_cam_tcp.as_matrix()
+    tx_cam_tcp[:3,  3] = t_cam
 
-    # Convert to axis-angle (rotation vector) as expected by your script later
-    rotvec_final = final_rotations.as_rotvec()
+    # ------------------------------------------------------------
+    # Build T_V_cam(t) and compute T_V_tcp(t) = T_V_cam(t) @ T_cam_tcp
+    # ------------------------------------------------------------
+    n = len(pos_V_cam)
+    tx_V_cam = np.zeros((n, 4, 4), dtype=np.float64)
+    tx_V_cam[:, 3, 3] = 1.0
+    tx_V_cam[:, :3, 3] = pos_V_cam
+    tx_V_cam[:, :3, :3] = rot_V_cam.as_matrix()
 
-    # Normalize quaternions for continuity (if you still need quats elsewhere)
-    quat_transformed = final_rotations.as_quat()
-    for i in range(1, len(quat_transformed)):
-        if np.dot(quat_transformed[i-1], quat_transformed[i]) < 0:
-            quat_transformed[i] *= -1
-            
+    tx_V_tcp = tx_V_cam @ tx_cam_tcp
+
+    # ------------------------------------------------------------
+    # World flip (Vicon world -> your desired world): 180 deg about Z
+    # ------------------------------------------------------------
+    tx_V2S = np.eye(4, dtype=np.float64)
+    tx_V2S[:3, :3] = R_v2s.as_matrix()
+
+    tx_S_tcp = tx_V2S @ tx_V_tcp
+
+    # output as (pos, rotvec)
+    # pos_final = tx_S_tcp[:, :3, 3]
+    # rot_final = R.from_matrix(tx_S_tcp[:, :3, :3])
+    # rotvec_final = rot_final.as_rotvec()
+
+
+    # ------------------------------------------------------------
+    # Final adjustment: 20-degree local rotation around Y-axis
+    # ------------------------------------------------------------
+    R_y_adj = R.from_euler("y", 20, degrees=True)
+    tx_y_adj = np.eye(4, dtype=np.float64)
+    tx_y_adj[:3, :3] = R_y_adj.as_matrix()
+
+    # Right-multiply to rotate the TCP in place around its local Y-axis
+    tx_S_tcp_final = tx_S_tcp @ tx_y_adj
+
+    # output as (pos, rotvec)
+    pos_final = tx_S_tcp_final[:, :3, 3]
+    rot_final = R.from_matrix(tx_S_tcp_final[:, :3, :3])
+    rotvec_final = rot_final.as_rotvec()
+
+
     return pos_final, rotvec_final
 
 def first_non_empty_ep_len(episode_ends: np.ndarray) -> int:
