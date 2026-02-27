@@ -16,8 +16,8 @@ register_codecs()
 # Paths
 # -----------------------------------------------------------------------------
 SRC_ZARR = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/dataset_camera_only.zarr.zip"
-DST_ZARR = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/dataset_with_vicon_trimmed.zarr.zip"
-VICON_TRIMMED_DIR = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/vicon_trimmed_2"
+DST_ZARR = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/dataset_with_vicon_trimmed_2.zarr.zip"
+VICON_TRIMMED_DIR = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/vicon_trimmed_3"
 
 # -----------------------------------------------------------------------------
 # Vicon CSV naming
@@ -30,25 +30,26 @@ vicon_pos_scale = 1e-3
 # -----------------------------------------------------------------------------
 # Geometry
 # -----------------------------------------------------------------------------
-R_local = np.array([
-    [-1,  0,  0],
-    [ 0,  0, -1],
-    [ 0, -1,  0]
+# R_local defines the mapping from your DESIRED local axes to the CURRENT local axes:
+R_local_mat = np.array([
+    [1.0,  0.0,  0.0],
+    [0.0,  0.0,  1.0],
+    [0.0, -1.0,  0.0]
 ])
-rotvec_local = R.from_matrix(R_local).as_rotvec()
-t_offset = [-0.02799, -0.206246, -0.093154]
+rot_local = R.from_matrix(R_local_mat)
 
-pose_cam_tcp = np.concatenate([t_offset, rotvec_local])
-T_cam_tcp = pose_to_mat(pose_cam_tcp)
-t_local_shift = T_cam_tcp[:3, 3]
-R_local_rot = R.from_matrix(T_cam_tcp[:3, :3])
+# 180-degree rotation around Z-axis
+# This matrix represents a 180-deg rotation about Z
+R_v2s = R.from_matrix(np.array([
+    [-1.0,  0.0,  0.0],
+    [ 0.0, -1.0,  0.0],
+    [ 0.0,  0.0,  1.0],
+]))
 
-R_vicon_to_slam = np.array([
-    [-1.0,  0.0, 0.0],
-    [ 0.0, -1.0, 0.0],
-    [ 0.0,  0.0, 1.0],
-], dtype=np.float64)
-rot_v2s = R.from_matrix(R_vicon_to_slam)
+# rot_v2s = R.from_matrix(R_vicon_to_slam_mat)
+
+# The offset to be applied in the NEW frame
+vicon_world_offset = np.array([0.02799, 0.206246, -0.093154], dtype=np.float64)
 
 # -----------------------------------------------------------------------------
 # Helpers
@@ -63,6 +64,23 @@ def ep_csv_path(ep: int, base_dir: pathlib.Path) -> pathlib.Path:
     files = sorted([p.name for p in base_dir.glob("*.csv")], key=natural_key)
     return base_dir / files[ep]
 
+# def read_trimmed_vicon_csv(p: pathlib.Path):
+#     df = pd.read_csv(p)
+#     required = ["Pos_X","Pos_Y","Pos_Z","Rot_X","Rot_Y","Rot_Z","Rot_W"]
+#     for c in required:
+#         df[c] = pd.to_numeric(df[c], errors="coerce")
+#     df = df[np.isfinite(df[required]).all(axis=1)].reset_index(drop=True)
+
+#     pos = df[["Pos_X","Pos_Y","Pos_Z"]].to_numpy(dtype=np.float64) * vicon_pos_scale
+#     quat = df[["Rot_X","Rot_Y","Rot_Z","Rot_W"]].to_numpy(dtype=np.float64)
+
+#     # normalize + hemisphere continuity
+#     quat = quat / np.linalg.norm(quat, axis=1, keepdims=True)
+#     for i in range(1, len(quat)):
+#         if np.dot(quat[i-1], quat[i]) < 0:
+#             quat[i] *= -1
+#     return pos, quat
+
 def read_trimmed_vicon_csv(p: pathlib.Path):
     df = pd.read_csv(p)
     required = ["Pos_X","Pos_Y","Pos_Z","Rot_X","Rot_Y","Rot_Z","Rot_W"]
@@ -70,15 +88,31 @@ def read_trimmed_vicon_csv(p: pathlib.Path):
         df[c] = pd.to_numeric(df[c], errors="coerce")
     df = df[np.isfinite(df[required]).all(axis=1)].reset_index(drop=True)
 
+    # 1. Extract raw position (scaled to meters) and quaternions
     pos = df[["Pos_X","Pos_Y","Pos_Z"]].to_numpy(dtype=np.float64) * vicon_pos_scale
     quat = df[["Rot_X","Rot_Y","Rot_Z","Rot_W"]].to_numpy(dtype=np.float64)
 
-    # normalize + hemisphere continuity
-    quat = quat / np.linalg.norm(quat, axis=1, keepdims=True)
-    for i in range(1, len(quat)):
-        if np.dot(quat[i-1], quat[i]) < 0:
-            quat[i] *= -1
-    return pos, quat
+    # TRANSFORM POSITION
+    # 1. Flip world 180 around Z, 2. Add translation
+    pos_final = R_v2s.apply(pos) + vicon_world_offset
+
+    # TRANSFORM ORIENTATION (The Gripper/TCP)
+    raw_rotations = R.from_quat(quat)
+    
+    # We apply the world-flip FIRST (to orient the sensor) 
+    # and the local-TCP transformation LAST (to orient the tool)
+    final_rotations = R_v2s * raw_rotations * rot_local 
+
+    # Convert to axis-angle (rotation vector) as expected by your script later
+    rotvec_final = final_rotations.as_rotvec()
+
+    # Normalize quaternions for continuity (if you still need quats elsewhere)
+    quat_transformed = final_rotations.as_quat()
+    for i in range(1, len(quat_transformed)):
+        if np.dot(quat_transformed[i-1], quat_transformed[i]) < 0:
+            quat_transformed[i] *= -1
+            
+    return pos_final, rotvec_final
 
 def first_non_empty_ep_len(episode_ends: np.ndarray) -> int:
     starts = np.concatenate(([0], episode_ends[:-1]))
@@ -164,21 +198,16 @@ for ep, (gs, ge) in enumerate(ep_slices):
     for k in keys:
         new_arrays[k][write_ptr:write_ptr + L] = data[k][gs:ge]
 
-    # compute vicon-derived for this episode (using first L rows)
+    # Get the already-transformed data from the helper
     vicon_csv = ep_csv_path(ep, vicon_dir)
-    pos_v, quat_v = read_trimmed_vicon_csv(vicon_csv)
+    pos_v, rotvec_v = read_trimmed_vicon_csv(vicon_csv)
+    
     pos_v = pos_v[:L]
-    quat_v = quat_v[:L]
+    rotvec_v = rotvec_v[:L]
 
-    rot_cam = R.from_quat(quat_v)
-    pos_tcp_vicon = pos_v + rot_cam.apply(t_local_shift)
-    rot_tcp_vicon = rot_cam * R_local_rot
-
-    pos_tcp_slam = pos_tcp_vicon @ R_vicon_to_slam.T
-    rot_tcp_slam = (rot_v2s * rot_tcp_vicon).as_rotvec()
-
-    eef_pos_new[write_ptr:write_ptr + L] = pos_tcp_slam.astype(np.float32, copy=False)
-    eef_rot_new[write_ptr:write_ptr + L] = rot_tcp_slam.astype(np.float32, copy=False)
+    # Assign to new arrays
+    eef_pos_new[write_ptr:write_ptr + L] = pos_v.astype(np.float32)
+    eef_rot_new[write_ptr:write_ptr + L] = rotvec_v.astype(np.float32)
 
     sp = np.concatenate([eef_pos_new[write_ptr], eef_rot_new[write_ptr]])
     ep_pose = np.concatenate([eef_pos_new[write_ptr + L - 1], eef_rot_new[write_ptr + L - 1]])

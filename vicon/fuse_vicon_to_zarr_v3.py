@@ -49,6 +49,8 @@ pattern = "aligned_episode_{i:03d}.csv"
 one_based = True
 vicon_pos_scale = 1e-3
 
+vicon_world_offset = np.array([-0.02799, -0.206246, -0.093154], dtype=np.float64)  # <-- put your numbers here
+
 # 1. LOCAL TRANSFORMATION (Camera -> Tool/EE)
 # This handles the axis swap and the translation from camera center to peg tip.
 R_local = np.array([
@@ -131,23 +133,44 @@ for ep in range(num_episodes):
     pos_vicon, quat_vicon = pos_vicon[:L], quat_vicon[:L]
     curr_e = s + L
 
-    # --- 1. LOCAL TRANSFORMATION (Vicon Space) ---
-    # Convert camera quat to scipy rotation
+    # # --- 1. LOCAL TRANSFORMATION (Vicon Space) ---
+    # # Convert camera quat to scipy rotation
+    # rot_cam_vicon = R.from_quat(quat_vicon)
+    
+    # # Position: Apply the local shift relative to the camera's orientation
+    # vicon_dynamic_shift = rot_cam_vicon.apply(t_local_shift)
+    # pos_tcp_vicon = pos_vicon + vicon_dynamic_shift
+
+    # # Orientation: Apply the tool axis swap (Right-Multiply)
+    # rot_tcp_vicon = rot_cam_vicon * R_local_rot
+
+    # # --- 2. GLOBAL WORLD TRANSFORMATION (Rotate Entire World 180 deg) ---
+    # # Rotate the finished position vector around the world Z-axis
+    # pos_tcp_slam = pos_tcp_vicon @ R_vicon_to_slam.T 
+    
+    # # Rotate the finished orientation (Left-Multiply by world rotation)
+    # rot_tcp_slam = rot_v2s * rot_tcp_vicon
+    # rotvec_slam = rot_tcp_slam.as_rotvec()
+
+        # Convert camera quat to scipy rotation (camera pose in Vicon world)
     rot_cam_vicon = R.from_quat(quat_vicon)
-    
-    # Position: Apply the local shift relative to the camera's orientation
-    vicon_dynamic_shift = rot_cam_vicon.apply(t_local_shift)
-    pos_tcp_vicon = pos_vicon + vicon_dynamic_shift
 
-    # Orientation: Apply the tool axis swap (Right-Multiply)
-    rot_tcp_vicon = rot_cam_vicon * R_local_rot
+    # --- Step 0: apply constant world offset in Vicon world (position only) ---
+    pos_cam_vicon_shift = pos_vicon + vicon_world_offset
 
-    # --- 2. GLOBAL WORLD TRANSFORMATION (Rotate Entire World 180 deg) ---
-    # Rotate the finished position vector around the world Z-axis
-    pos_tcp_slam = pos_tcp_vicon @ R_vicon_to_slam.T 
-    
-    # Rotate the finished orientation (Left-Multiply by world rotation)
-    rot_tcp_slam = rot_v2s * rot_tcp_vicon
+    # --- Step 1: global transform Vicon -> SLAM (rotate whole world) ---
+    # Position in SLAM
+    pos_cam_slam = pos_cam_vicon_shift @ R_vicon_to_slam.T  # row-vector form
+    # Orientation in SLAM (left-multiply world rotation)
+    rot_cam_slam = rot_v2s * rot_cam_vicon
+
+    # --- Step 2: local camera -> TCP in SLAM world ---
+    # Lever-arm shift in SLAM world using SLAM camera orientation
+    slam_dynamic_shift = rot_cam_slam.apply(t_local_shift)
+    pos_tcp_slam = pos_cam_slam + slam_dynamic_shift
+
+    # Axis convention swap (right-multiply)
+    rot_tcp_slam = rot_cam_slam * R_local_rot
     rotvec_slam = rot_tcp_slam.as_rotvec()
 
     # Store results

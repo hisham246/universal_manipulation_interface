@@ -25,10 +25,10 @@ def set_3d_equal(ax, X, Y, Z, pad=0.05):
 
 def guess_pos_scale_to_meters(pos_xyz):
     med = np.nanmedian(np.linalg.norm(pos_xyz, axis=1))
+    # If the median magnitude is large (e.g. > 10), assume mm and scale to meters
     if med > 10.0:
         return 1.0 / 1000.0
     return 1.0
-
 
 def debug_axes(path, n=5):
     pos, Rmats, meta = load_pose_sequence_auto(path)
@@ -53,6 +53,7 @@ def debug_axes(path, n=5):
     # print a few samples
     for i in np.linspace(0, len(pos)-1, num=min(n, len(pos)), dtype=int):
         print(f"i={i:5d}  tool_x={tool_x[i]}  dot={dots[i]: .3f}")
+
 # ----------------------------
 # Rotations
 # ----------------------------
@@ -131,6 +132,20 @@ def load_episode_rotvec_csv(path):
     df = df.dropna(subset=cols_pos + cols_rv).reset_index(drop=True)
     return df
 
+def load_aligned_quat_csv(path):
+    """Loader for the 'aligned' format with Pos_X/Y/Z and Rot_X/Y/Z/W."""
+    df = pd.read_csv(path)
+    cols_pos = ["Pos_X", "Pos_Y", "Pos_Z"]
+    cols_quat = ["Rot_X", "Rot_Y", "Rot_Z", "Rot_W"]
+    
+    for c in cols_pos + cols_quat:
+        if c not in df.columns:
+            raise ValueError(f"Missing column {c} in {path}")
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+        
+    df = df.dropna(subset=cols_pos + cols_quat).reset_index(drop=True)
+    return df
+
 def load_pose_sequence_auto(path):
     df = pd.read_csv(path, nrows=5)
     cols = set(df.columns)
@@ -138,6 +153,8 @@ def load_pose_sequence_auto(path):
     is_vicon = all(c in cols for c in ["TX","TY","TZ","RX","RY","RZ","RW"])
     is_ep    = all(c in cols for c in ["robot0_eef_pos_0","robot0_eef_pos_1","robot0_eef_pos_2",
                                        "robot0_eef_rot_axis_angle_0","robot0_eef_rot_axis_angle_1","robot0_eef_rot_axis_angle_2"])
+    # New check for aligned format
+    is_aligned = all(c in cols for c in ["Pos_X","Pos_Y","Pos_Z","Rot_X","Rot_Y","Rot_Z","Rot_W"])
 
     if is_vicon:
         full = load_vicon_quat_csv(path)
@@ -156,6 +173,15 @@ def load_pose_sequence_auto(path):
         pos = pos * s
         Rmats = np.stack([rotvec_to_rotmat(r) for r in rv], axis=0)
         return pos, Rmats, {"format":"episode_rotvec", "pos_scale":s, "df":full}
+
+    if is_aligned:
+        full = load_aligned_quat_csv(path)
+        pos = full[["Pos_X","Pos_Y","Pos_Z"]].to_numpy(float)
+        quat = full[["Rot_X","Rot_Y","Rot_Z","Rot_W"]].to_numpy(float)  # xyzw
+        s = guess_pos_scale_to_meters(pos)
+        pos = pos * s
+        Rmats = np.stack([quat_to_rotmat_xyzw(q) for q in quat], axis=0)
+        return pos, Rmats, {"format":"aligned_quat", "pos_scale":s, "df":full}
 
     raise ValueError(f"Could not auto-detect format for {path}\nColumns seen: {sorted(list(cols))}")
 
@@ -176,7 +202,6 @@ def _set_axis_lines_and_labels(pos, R, x_line, y_line, z_line, x_txt, y_txt, z_t
     z_line.set_data([pos[0], ez[0]], [pos[1], ez[1]])
     z_line.set_3d_properties([pos[2], ez[2]])
 
-    # put the label slightly beyond the tip
     lx = pos + R[:,0] * (L * label_offset)
     ly = pos + R[:,1] * (L * label_offset)
     lz = pos + R[:,2] * (L * label_offset)
@@ -185,11 +210,34 @@ def _set_axis_lines_and_labels(pos, R, x_line, y_line, z_line, x_txt, y_txt, z_t
     y_txt.set_position((ly[0], ly[1])); y_txt.set_3d_properties(ly[2])
     z_txt.set_position((lz[0], lz[1])); z_txt.set_3d_properties(lz[2])
 
+
+def print_final_distance_from_origin(path):
+    # Load the data using your existing auto-loader
+    pos, Rmats, meta = load_pose_sequence_auto(path)
+    
+    # Get the last pose (final position)
+    final_pos = pos[-1]
+    
+    # Calculate absolute distances from origin (0,0,0)
+    abs_dist_x = abs(final_pos[0])
+    abs_dist_y = abs(final_pos[1])
+    abs_dist_z = abs(final_pos[2])
+    
+    # Total Euclidean distance
+    total_dist = np.linalg.norm(final_pos)
+    
+    print(f"\n--- Final Pose Distance from Origin ({meta['format']}) ---")
+    print(f"Final X: {final_pos[0]:.4f} m  (Abs Dist: {abs_dist_x:.4f} m)")
+    print(f"Final Y: {final_pos[1]:.4f} m  (Abs Dist: {abs_dist_y:.4f} m)")
+    print(f"Final Z: {final_pos[2]:.4f} m  (Abs Dist: {abs_dist_z:.4f} m)")
+    print(f"Total Euclidean Distance: {total_dist:.4f} m")
+
 # ----------------------------
 # Animations
 # ----------------------------
 def animate_single_csv(path, stride=1, axis_len=0.03, interval_ms=25, save_path=None):
     pos, Rmats, meta = load_pose_sequence_auto(path)
+
 
     pos_s = pos[::stride]
     R_s   = Rmats[::stride]
@@ -197,10 +245,10 @@ def animate_single_csv(path, stride=1, axis_len=0.03, interval_ms=25, save_path=
     if n < 2:
         raise ValueError("Not enough points to animate")
 
-    fig = plt.figure()
+    fig = plt.figure(figsize=(10, 8))
     ax = fig.add_subplot(111, projection="3d")
 
-    ax.plot(pos_s[:,0], pos_s[:,1], pos_s[:,2], linewidth=1.5)
+    ax.plot(pos_s[:,0], pos_s[:,1], pos_s[:,2], linewidth=1.5, alpha=0.5)
 
     ax.set_xlabel("X (m)")
     ax.set_ylabel("Y (m)")
@@ -208,30 +256,21 @@ def animate_single_csv(path, stride=1, axis_len=0.03, interval_ms=25, save_path=
 
     set_3d_equal(ax, pos_s[:,0], pos_s[:,1], pos_s[:,2])
 
-    x_line, = ax.plot([], [], [], linewidth=2)
-    y_line, = ax.plot([], [], [], linewidth=2)
-    z_line, = ax.plot([], [], [], linewidth=2)
-    pt, = ax.plot([], [], [], marker="o", markersize=4)
+    x_line, = ax.plot([], [], [], 'r', linewidth=2)
+    y_line, = ax.plot([], [], [], 'g', linewidth=2)
+    z_line, = ax.plot([], [], [], 'b', linewidth=2)
+    pt, = ax.plot([], [], [], 'ko', markersize=4)
 
-    # moving labels for the frame axes
-    x_txt = ax.text(0, 0, 0, "X", fontsize=10)
-    y_txt = ax.text(0, 0, 0, "Y", fontsize=10)
-    z_txt = ax.text(0, 0, 0, "Z", fontsize=10)
+    x_txt = ax.text(0, 0, 0, "X", fontsize=10, color='r')
+    y_txt = ax.text(0, 0, 0, "Y", fontsize=10, color='g')
+    z_txt = ax.text(0, 0, 0, "Z", fontsize=10, color='b')
 
     def update(i):
         p = pos_s[i]
         R = R_s[i]
-
-        print("tool x in world:", R[:,0])
-        print("tool y in world:", R[:,1])
-        print("tool z in world:", R[:,2])
-
-
         _set_axis_lines_and_labels(p, R, x_line, y_line, z_line, x_txt, y_txt, z_txt, axis_len)
-
         pt.set_data([p[0]], [p[1]])
         pt.set_3d_properties([p[2]])
-
         ax.set_title(f"Motion: {os.path.basename(path)}   step {i}/{n-1}   ({meta['format']})")
         return (x_line, y_line, z_line, pt, x_txt, y_txt, z_txt)
 
@@ -239,126 +278,20 @@ def animate_single_csv(path, stride=1, axis_len=0.03, interval_ms=25, save_path=
     plt.tight_layout()
 
     if save_path is not None:
-        ext = os.path.splitext(save_path)[1].lower()
-        if ext == ".gif":
-            anim.save(save_path, writer="pillow", fps=max(1, int(1000/interval_ms)))
-        else:
-            anim.save(save_path, writer="ffmpeg", fps=max(1, int(1000/interval_ms)))
+        anim.save(save_path, writer="pillow", fps=max(1, int(1000/interval_ms)))
         print("Saved animation to:", save_path)
 
     plt.show()
 
-
-def print_final_displacement(path):
-    # Use your existing auto-loader to get the scaled positions
-    pos, Rmats, meta = load_pose_sequence_auto(path)
-    
-    # Extract the final position (last row)
-    final_pos = pos[-1]
-    
-    # Calculate absolute distance in each axis from the origin (0,0,0)
-    dx = abs(final_pos[0])
-    dy = abs(final_pos[1])
-    dz = abs(final_pos[2])
-    
-    # Calculate total Euclidean (straight-line) distance
-    total_dist = np.linalg.norm(final_pos)
-    
-    print(f"\n==== Final Pose Analysis: {os.path.basename(path)} ====")
-    print(f"Format detected: {meta['format']}")
-    print(f"Scale applied:   {meta['pos_scale']}")
-    print("-" * 40)
-    print(f"Final X Distance: {dx:.4f} m")
-    print(f"Final Y Distance: {dy:.4f} m")
-    print(f"Final Z Distance: {dz:.4f} m")
-    print(f"Total Magnitude:  {total_dist:.4f} m")
-
-def animate_overlay_two_csv(path_a, path_b, stride=1, axis_len=0.03, interval_ms=25, save_path=None):
-    posA, RA, metaA = load_pose_sequence_auto(path_a)
-    posB, RB, metaB = load_pose_sequence_auto(path_b)
-
-    posA = posA[::stride]; RA = RA[::stride]
-    posB = posB[::stride]; RB = RB[::stride]
-    nA, nB = len(posA), len(posB)
-    if nA < 2 or nB < 2:
-        raise ValueError("Not enough points to animate")
-
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection="3d")
-
-    ax.plot(posA[:,0], posA[:,1], posA[:,2], label=f"A: {os.path.basename(path_a)}", linewidth=1.0)
-    ax.plot(posB[:,0], posB[:,1], posB[:,2], label=f"B: {os.path.basename(path_b)}", linewidth=2.0)
-    ax.legend()
-
-    ax.set_xlabel("X (m)")
-    ax.set_ylabel("Y (m)")
-    ax.set_zlabel("Z (m)")
-
-    all_pos = np.vstack([posA, posB])
-    set_3d_equal(ax, all_pos[:,0], all_pos[:,1], all_pos[:,2])
-
-    axA_x, = ax.plot([], [], [], linewidth=2)
-    axA_y, = ax.plot([], [], [], linewidth=2)
-    axA_z, = ax.plot([], [], [], linewidth=2)
-
-    axB_x, = ax.plot([], [], [], linewidth=2)
-    axB_y, = ax.plot([], [], [], linewidth=2)
-    axB_z, = ax.plot([], [], [], linewidth=2)
-
-    ptA, = ax.plot([], [], [], marker="o", markersize=4)
-    ptB, = ax.plot([], [], [], marker="o", markersize=4)
-
-    # moving labels for A and B frames
-    A_x_txt = ax.text(0, 0, 0, "A_X", fontsize=9)
-    A_y_txt = ax.text(0, 0, 0, "A_Y", fontsize=9)
-    A_z_txt = ax.text(0, 0, 0, "A_Z", fontsize=9)
-
-    B_x_txt = ax.text(0, 0, 0, "B_X", fontsize=9)
-    B_y_txt = ax.text(0, 0, 0, "B_Y", fontsize=9)
-    B_z_txt = ax.text(0, 0, 0, "B_Z", fontsize=9)
-
-    def update(iB):
-        t = iB / (nB - 1)
-        iA = int(round(t * (nA - 1)))
-
-        pA, rA = posA[iA], RA[iA]
-        pB, rB = posB[iB], RB[iB]
-
-        _set_axis_lines_and_labels(pA, rA, axA_x, axA_y, axA_z, A_x_txt, A_y_txt, A_z_txt, axis_len)
-        _set_axis_lines_and_labels(pB, rB, axB_x, axB_y, axB_z, B_x_txt, B_y_txt, B_z_txt, axis_len)
-
-        ptA.set_data([pA[0]], [pA[1]]); ptA.set_3d_properties([pA[2]])
-        ptB.set_data([pB[0]], [pB[1]]); ptB.set_3d_properties([pB[2]])
-
-        ax.set_title(
-            f"Overlay frames\n"
-            f"A({metaA['format']}) idx {iA}/{nA-1}  |  B({metaB['format']}) idx {iB}/{nB-1}"
-        )
-        return (axA_x, axA_y, axA_z, axB_x, axB_y, axB_z,
-                ptA, ptB, A_x_txt, A_y_txt, A_z_txt, B_x_txt, B_y_txt, B_z_txt)
-
-    anim = FuncAnimation(fig, update, frames=nB, interval=interval_ms, blit=False)
-    plt.tight_layout()
-
-    if save_path is not None:
-        ext = os.path.splitext(save_path)[1].lower()
-        if ext == ".gif":
-            anim.save(save_path, writer="pillow", fps=max(1, int(1000/interval_ms)))
-        else:
-            anim.save(save_path, writer="ffmpeg", fps=max(1, int(1000/interval_ms)))
-        print("Saved animation to:", save_path)
-
-    plt.show()
-
-# ----------------------------
-# Example main
-# ----------------------------
 if __name__ == "__main__":
-    # episode_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/slam_segmented/episode_1.csv"
-    episode_path = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/vicon_final/episode_1.csv"
-    # episode_path = "/home/hisham246/uwaterloo/umi/reaching_ball_multimodal/csv_filtered/episode_1.csv"
+    # Point to your aligned file
+    episode_path = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/vicon_trimmed_3/aligned_episode_001.csv"
 
-    print_final_displacement(episode_path)
+    print_final_distance_from_origin(episode_path)
+    # Debug details
+    debug_axes(episode_path)
+
+    # Run animation
     animate_single_csv(
         episode_path,
         stride=1,
@@ -366,4 +299,3 @@ if __name__ == "__main__":
         interval_ms=25,
         save_path=None
     )
-    debug_axes(episode_path)
