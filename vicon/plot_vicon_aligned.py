@@ -66,7 +66,7 @@ def plot_one_by_one(directory='.', file_pattern='episode_*.csv'):
         plt.close(fig) # Close current window to open the next one
 
 if __name__ == "__main__":
-    directory = '/home/hisham246/uwaterloo/cable_route_umi/vicon_no_blue_station_no_trimming'
-    # directory = '/home/hisham246/uwaterloo/peg_in_hole_delta_umi/vicon_final'
+    directory = '/home/hisham246/uwaterloo/VIDP_IROS2026/cable_route/vicon_all_stations'
+    # directory = '/home/hisham246/uwaterloo/VIDP_IROS2026/peg_in_hole/vicon'
     plot_all_trajectories(directory=directory)
     plot_one_by_one(directory=directory)

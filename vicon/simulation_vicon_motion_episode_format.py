@@ -355,7 +355,7 @@ def animate_overlay_two_csv(path_a, path_b, stride=1, axis_len=0.03, interval_ms
 # ----------------------------
 if __name__ == "__main__":
     # episode_path = "/home/hisham246/uwaterloo/cable_route_umi/vicon_final/episode_1.csv"
-    episode_path = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/vicon_final_test/episode_60.csv"
+    episode_path = "/home/hisham246/uwaterloo/VIDP_IROS2026/cable_route/vicon_no_blue_station/episode_12.csv"
 
     # episode_path = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/vicon_final/episode_1.csv"
     # episode_path = "/home/hisham246/uwaterloo/umi/reaching_ball_multimodal/csv_filtered/episode_1.csv"
@@ -369,3 +369,44 @@ if __name__ == "__main__":
         save_path=None
     )
     debug_axes(episode_path)
+
+
+# # ----------------------------
+# # Example main
+# # ----------------------------
+# if __name__ == "__main__":
+#     # Define the directory containing your episodes
+#     base_dir = "/home/hisham246/uwaterloo/VIDP_IROS2026/cable_route/vicon_all_stations/"
+    
+#     # Find all CSV files matching the episode pattern
+#     search_pattern = os.path.join(base_dir, "episode_*.csv")
+#     episode_files = glob.glob(search_pattern)
+    
+#     # Sort them naturally (1, 2, ..., 10, 11) instead of alphabetically (1, 10, 11, ..., 2)
+#     episode_files.sort(key=natural_key)
+    
+#     if not episode_files:
+#         print(f"No CSV files found in {base_dir}")
+#     else:
+#         print(f"Found {len(episode_files)} episodes. Playing them sequentially...")
+
+#     # Loop through each file one by one
+#     for episode_path in episode_files:
+#         print(f"\n========================================================")
+#         print(f"Loading: {os.path.basename(episode_path)}")
+#         print(f"========================================================")
+        
+#         # Run your analysis functions
+#         print_final_displacement(episode_path)
+#         debug_axes(episode_path)
+        
+#         # Run the animation. 
+#         # Note: plt.show() inside this function will pause the loop. 
+#         # Close the plot window to advance to the next episode.
+#         animate_single_csv(
+#             episode_path,
+#             stride=1,
+#             axis_len=0.03,
+#             interval_ms=25,
+#             save_path=None
+#         )

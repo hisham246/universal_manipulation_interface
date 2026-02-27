@@ -13,8 +13,8 @@ from scipy.spatial.transform import Slerp
 # CONFIG
 # =========================================================
 VICON_DIR   = Path("/home/hisham246/uwaterloo/cable_route_umi/vicon_logs_to_csv/")     # vicon_1.csv ...
-EPISODE_DIR = Path("/home/hisham246/uwaterloo/cable_route_umi/vicon_final/")          # episode_1.csv ...
-OUT_DIR     = Path("/home/hisham246/uwaterloo/cable_route_umi/task_frames_cable_station/")
+EPISODE_DIR = Path("/home/hisham246/uwaterloo/VIDP_IROS2026/cable_route/vicon_no_blue_station/")          # episode_1.csv ...
+OUT_DIR     = Path("/home/hisham246/uwaterloo/cable_route_umi/task_frames_cable_station_no_blue_station/")
 
 OBJECT = "cable_station"
 TIME_MARGIN_SEC = 0.05

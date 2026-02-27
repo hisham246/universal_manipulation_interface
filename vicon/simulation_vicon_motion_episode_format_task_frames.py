@@ -471,8 +471,8 @@ if __name__ == "__main__":
     #     interval_ms=25,
     #     save_path=None
     # )
-    episode_path = "/home/hisham246/uwaterloo/cable_route_umi/vicon_final/episode_5.csv"
-    cable_station_path = "/home/hisham246/uwaterloo/cable_route_umi/task_frames_cable_station/cable_station_aligned_episode_005.csv"
+    episode_path = "/home/hisham246/uwaterloo/VIDP_IROS2026/cable_route/vicon_no_blue_station/episode_5.csv"
+    cable_station_path = "/home/hisham246/uwaterloo/cable_route_umi/task_frames_cable_station_no_blue_station/cable_station_aligned_episode_005.csv"
 
     animate_episode_with_cable_station(
         episode_path,

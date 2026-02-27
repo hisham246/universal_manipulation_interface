@@ -8,7 +8,9 @@ import re
 def natural_key(path):
     return [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', path)]
 
-data_dir = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/vicon_final"
+# data_dir = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon_v3/vicon_final"
+data_dir = "/home/hisham246/uwaterloo/VIDP_IROS2026/peg_in_hole/vicon"
+
 
 
 episode_files = sorted([f for f in os.listdir(data_dir) if f.startswith("episode_") and f.endswith(".csv")], key=natural_key)
