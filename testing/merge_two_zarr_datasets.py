@@ -10,7 +10,7 @@ register_codecs()
 # Paths
 # -----------------------------------------------------------------------------
 ZARR_1 = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon_v3/VIDP_data/dataset_with_vicon_segmented_filtered.zarr.zip"
-ZARR_2 = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/VIDP_data/dataset_with_vicon_trimmed_2.zarr.zip"
+ZARR_2 = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/VIDP_data/dataset_with_vicon_trimmed_filtered_2.zarr.zip"
 OUT_ZARR = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon_v3/VIDP_data/dataset_with_vicon_combined.zarr.zip"
 
 

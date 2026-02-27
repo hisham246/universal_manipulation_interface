@@ -355,9 +355,9 @@ def animate_overlay_two_csv(path_a, path_b, stride=1, axis_len=0.03, interval_ms
 # ----------------------------
 if __name__ == "__main__":
     # episode_path = "/home/hisham246/uwaterloo/cable_route_umi/vicon_final/episode_1.csv"
-    episode_path = "/home/hisham246/uwaterloo/VIDP_IROS2026/cable_route/vicon_no_blue_station/episode_12.csv"
+    # episode_path = "/home/hisham246/uwaterloo/VIDP_IROS2026/cable_route/vicon_no_blue_station/episode_12.csv"
 
-    # episode_path = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/vicon_final/episode_1.csv"
+    episode_path = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/VIDP_data/dataset_with_vicon_trimmed_filtered_2/episode_10.csv"
     # episode_path = "/home/hisham246/uwaterloo/umi/reaching_ball_multimodal/csv_filtered/episode_1.csv"
 
     print_final_displacement(episode_path)

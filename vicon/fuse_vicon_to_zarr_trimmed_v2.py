@@ -31,6 +31,8 @@ PATTERN = "aligned_episode_{i:03d}.csv"
 ONE_BASED = True
 vicon_pos_scale = 1e-3
 
+MAX_EPISODES = 80
+
 # -----------------------------------------------------------------------------
 # Geometry
 # -----------------------------------------------------------------------------
@@ -122,7 +124,43 @@ def ep_csv_path(ep: int, base_dir: pathlib.Path) -> pathlib.Path:
             
 #     return pos_final, rotvec_final
 
-def read_trimmed_vicon_csv(p: pathlib.Path):
+# -----------------------------------------------------------------------------
+# Optional per-episode Y correction from summary_final_angles.csv
+# -----------------------------------------------------------------------------
+SUMMARY_FINAL_ANGLES = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/VIDP_data/summary_final_angles.csv"  # <-- set me (or None)
+
+def build_ep_y_correction_map(summary_csv: str, one_based: bool):
+    """
+    Returns dict ep_index(0-based) -> y_correction_deg (float)
+    Uses: y_correction_deg = -int(final_euler_y_deg_xyz)
+    """
+    df = pd.read_csv(summary_csv)
+    if "final_euler_y_deg_xyz" not in df.columns:
+        raise ValueError("summary_final_angles.csv missing column: final_euler_y_deg_xyz")
+
+    ep_to_y = {}
+    for _, row in df.iterrows():
+        fname = str(row["file"]) if "file" in df.columns else ""
+        # try to parse episode index from filename, e.g. aligned_episode_001.csv
+        m = re.search(r"(\d+)", fname)
+        if m is None:
+            continue
+        i = int(m.group(1))
+        ep0 = (i - 1) if one_based else i
+
+        y_final = float(row["final_euler_y_deg_xyz"])
+        y_int = int(y_final)  # "integer digit" (trunc toward 0)
+        ep_to_y[ep0] = float(y_int)  # correction so final y ~ 0
+
+    return ep_to_y
+
+
+EP_Y_CORR = None
+if SUMMARY_FINAL_ANGLES is not None and len(str(SUMMARY_FINAL_ANGLES)) > 0:
+    EP_Y_CORR = build_ep_y_correction_map(SUMMARY_FINAL_ANGLES, one_based=ONE_BASED)
+    print(f"Loaded per-episode Y corrections for {len(EP_Y_CORR)} episodes from {SUMMARY_FINAL_ANGLES}")
+
+def read_trimmed_vicon_csv(p: pathlib.Path,  y_corr_deg: float = 0.0):
     df = pd.read_csv(p)
     required = ["Pos_X","Pos_Y","Pos_Z","Rot_X","Rot_Y","Rot_Z","Rot_W"]
     for c in required:
@@ -159,6 +197,14 @@ def read_trimmed_vicon_csv(p: pathlib.Path):
 
     tx_V_tcp = tx_V_cam @ tx_cam_tcp
 
+    # Compare expected delta in Vicon world: delta(t) = p_V_tcp - p_V_cam = R_V_cam(t) @ t_cam
+    delta_V = tx_V_tcp[:, :3, 3] - tx_V_cam[:, :3, 3]
+    delta_V_expected = rot_V_cam.apply(t_cam)
+
+    print("delta_V mean:", delta_V.mean(axis=0))
+    print("delta_V_expected mean:", delta_V_expected.mean(axis=0))
+    print("max abs diff:", np.max(np.abs(delta_V - delta_V_expected)))
+
     # ------------------------------------------------------------
     # World flip (Vicon world -> your desired world): 180 deg about Z
     # ------------------------------------------------------------
@@ -176,18 +222,33 @@ def read_trimmed_vicon_csv(p: pathlib.Path):
     # ------------------------------------------------------------
     # Final adjustment: 20-degree local rotation around Y-axis
     # ------------------------------------------------------------
-    R_y_adj = R.from_euler("y", 20, degrees=True)
-    tx_y_adj = np.eye(4, dtype=np.float64)
-    tx_y_adj[:3, :3] = R_y_adj.as_matrix()
+    # R_y_adj = R.from_euler("y", 20, degrees=True)
+    # tx_y_adj = np.eye(4, dtype=np.float64)
+    # tx_y_adj[:3, :3] = R_y_adj.as_matrix()
+
 
     # Right-multiply to rotate the TCP in place around its local Y-axis
-    tx_S_tcp_final = tx_S_tcp @ tx_y_adj
+    # tx_S_tcp_final = tx_S_tcp @ tx_y_adj
+
+    #     # output as (pos, rotvec)
+    # pos_final = tx_S_tcp_final[:, :3, 3]
+    # rot_final = R.from_matrix(tx_S_tcp_final[:, :3, :3])
+    # rotvec_final = rot_final.as_rotvec()
+
+        # ------------------------------------------------------------
+    # Final adjustment: per-episode local rotation around Y-axis
+    # (right-multiply = rotate TCP in its local frame)
+    # ------------------------------------------------------------
+    if abs(y_corr_deg) > 1e-9:
+        R_y_adj = R.from_euler("y", y_corr_deg, degrees=True)
+        tx_y_adj = np.eye(4, dtype=np.float64)
+        tx_y_adj[:3, :3] = R_y_adj.as_matrix()
+        tx_S_tcp = tx_S_tcp @ tx_y_adj
 
     # output as (pos, rotvec)
-    pos_final = tx_S_tcp_final[:, :3, 3]
-    rot_final = R.from_matrix(tx_S_tcp_final[:, :3, :3])
+    pos_final = tx_S_tcp[:, :3, 3]
+    rot_final = R.from_matrix(tx_S_tcp[:, :3, :3])
     rotvec_final = rot_final.as_rotvec()
-
 
     return pos_final, rotvec_final
 
@@ -210,6 +271,12 @@ with zarr.ZipStore(SRC_ZARR, mode="r") as src_store:
     episode_ends = np.asarray(root["meta"]["episode_ends"][:], dtype=int)
     episode_starts = np.concatenate(([0], episode_ends[:-1]))
     num_eps = len(episode_ends)
+
+    # ---- limit to first MAX_EPISODES episodes
+    if MAX_EPISODES is not None:
+        num_eps = min(num_eps, int(MAX_EPISODES))
+        episode_ends = episode_ends[:num_eps]
+        episode_starts = np.concatenate(([0], episode_ends[:-1]))
 
     # capture encoding from camera-only dataset
     orig_info = {}
@@ -236,7 +303,9 @@ for ep in range(num_eps):
     if not vicon_csv.exists():
         raise FileNotFoundError(f"Missing trimmed vicon CSV for ep {ep}: {vicon_csv}")
 
-    pos_v, quat_v = read_trimmed_vicon_csv(vicon_csv)
+    # pos_v, quat_v = read_trimmed_vicon_csv(vicon_csv)
+    y_corr = float(EP_Y_CORR.get(ep, 0.0)) if EP_Y_CORR is not None else 0.0
+    pos_v, quat_v = read_trimmed_vicon_csv(vicon_csv, y_corr_deg=y_corr)
     n_trim = len(pos_v)
 
     keep_start = 0
@@ -277,7 +346,10 @@ for ep, (gs, ge) in enumerate(ep_slices):
 
     # Get the already-transformed data from the helper
     vicon_csv = ep_csv_path(ep, vicon_dir)
-    pos_v, rotvec_v = read_trimmed_vicon_csv(vicon_csv)
+    # pos_v, rotvec_v = read_trimmed_vicon_csv(vicon_csv)
+
+    y_corr = float(EP_Y_CORR.get(ep, 0.0)) if EP_Y_CORR is not None else 0.0
+    pos_v, rotvec_v = read_trimmed_vicon_csv(vicon_csv, y_corr_deg=y_corr)
     
     pos_v = pos_v[:L]
     rotvec_v = rotvec_v[:L]

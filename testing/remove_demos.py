@@ -166,11 +166,11 @@ register_codecs()
 # -----------------------------
 # CONFIG
 # -----------------------------
-src_path = "/home/hisham246/uwaterloo/VIDP_IROS2026/cable_route/dataset_with_vicon_trimmed_filtered_no_blue_station.zarr.zip"
-dst_path = "/home/hisham246/uwaterloo/VIDP_IROS2026/cable_route/dataset_with_vicon_trimmed_filtered_no_blue_station_2.zarr.zip"
+src_path = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/VIDP_data/dataset_with_vicon_trimmed_2.zarr.zip"
+dst_path = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/VIDP_data/dataset_with_vicon_trimmed_filtered_2.zarr.zip"
 
 # Option A: drop explicit list (0-based episode indices)
-episodes_to_drop_0based = [100]
+episodes_to_drop_0based = [62]
 
 # Option B: drop last K episodes
 # K = 10

@@ -285,7 +285,7 @@ def animate_single_csv(path, stride=1, axis_len=0.03, interval_ms=25, save_path=
 
 if __name__ == "__main__":
     # Point to your aligned file
-    episode_path = "/home/hisham246/uwaterloo/cable_route_umi/aligned_vicon_files/aligned_vicon_to_episode/aligned_episode_001.csv"
+    episode_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon_v3/aligned_vicon_files_segmented/aligned_vicon_to_episode/aligned_episode_004.csv"
 
     print_final_distance_from_origin(episode_path)
     # Debug details
