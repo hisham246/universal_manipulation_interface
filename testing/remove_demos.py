@@ -166,8 +166,8 @@ register_codecs()
 # -----------------------------
 # CONFIG
 # -----------------------------
-src_path = "/home/hisham246/uwaterloo/cable_route_umi/dataset_with_vicon_trimmed.zarr.zip"
-dst_path = "/home/hisham246/uwaterloo/cable_route_umi/dataset_with_vicon_trimmed_filtered.zarr.zip"
+src_path = "/home/hisham246/uwaterloo/cable_route_umi/dataset_with_vicon_trimmed_all_stations.zarr.zip"
+dst_path = "/home/hisham246/uwaterloo/cable_route_umi/dataset_with_vicon_trimmed_filtered_all_stations.zarr.zip"
 
 # Option A: drop explicit list (0-based episode indices)
 episodes_to_drop_0based = [79, 101]

@@ -15,11 +15,11 @@ register_codecs()
 # -----------------------------------------------------------------------------
 # Paths
 # -----------------------------------------------------------------------------
-src_path = "/home/hisham246/uwaterloo/cable_route_umi/dataset_camera_only_filtered.zarr.zip"
-dst_path = "/home/hisham246/uwaterloo/cable_route_umi/dataset_with_vicon.zarr.zip"
-vicon_dir = "/home/hisham246/uwaterloo/cable_route_umi/aligned_vicon_files_2/aligned_vicon_to_episode"
+src_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon_v3/dataset_camera_only_segmented.zarr.zip"
+dst_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon_v3/dataset_with_vicon.zarr.zip"
+vicon_dir = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon_v3/vicon_final"
 
-ref_zarr = "/home/hisham246/uwaterloo/cable_route_umi_with_vicon/dataset.zarr.zip"
+ref_zarr = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon_v3/dataset.zarr.zip"
 
 
 # -----------------------------------------------------------------------------

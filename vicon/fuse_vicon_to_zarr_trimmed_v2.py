@@ -15,9 +15,9 @@ register_codecs()
 # -----------------------------------------------------------------------------
 # Paths
 # -----------------------------------------------------------------------------
-SRC_ZARR = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/dataset_camera_only.zarr.zip"
-DST_ZARR = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/dataset_with_vicon_trimmed_2.zarr.zip"
-VICON_TRIMMED_DIR = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/vicon_trimmed_3"
+SRC_ZARR = "/home/hisham246/uwaterloo/cable_route_umi/dataset_camera_only_filtered.zarr.zip"
+DST_ZARR = "/home/hisham246/uwaterloo/cable_route_umi/dataset_with_vicon_trimmed_no_blue_station.zarr.zip"
+VICON_TRIMMED_DIR = "/home/hisham246/uwaterloo/cable_route_umi/vicon_trimmed"
 
 # -----------------------------------------------------------------------------
 # Vicon CSV naming
@@ -32,8 +32,8 @@ vicon_pos_scale = 1e-3
 # -----------------------------------------------------------------------------
 # R_local defines the mapping from your DESIRED local axes to the CURRENT local axes:
 R_local_mat = np.array([
-    [1.0,  0.0,  0.0],
-    [0.0,  0.0,  1.0],
+    [-1.0,  0.0,  0.0],
+    [0.0,  0.0,  -1.0],
     [0.0, -1.0,  0.0]
 ])
 rot_local = R.from_matrix(R_local_mat)
@@ -49,7 +49,9 @@ R_v2s = R.from_matrix(np.array([
 # rot_v2s = R.from_matrix(R_vicon_to_slam_mat)
 
 # The offset to be applied in the NEW frame
-vicon_world_offset = np.array([0.02799, 0.206246, -0.093154], dtype=np.float64)
+# vicon_world_offset = np.array([0.02799, 0.206246, -0.093154], dtype=np.float64)
+vicon_world_offset = np.array([0.02799, -0.093154, -0.206246], dtype=np.float64)
+
 
 # -----------------------------------------------------------------------------
 # Helpers
@@ -92,6 +94,8 @@ def read_trimmed_vicon_csv(p: pathlib.Path):
     pos = df[["Pos_X","Pos_Y","Pos_Z"]].to_numpy(dtype=np.float64) * vicon_pos_scale
     quat = df[["Rot_X","Rot_Y","Rot_Z","Rot_W"]].to_numpy(dtype=np.float64)
 
+    # rot_y_adj = R.from_euler('y', 20, degrees=True)
+
     # TRANSFORM POSITION
     # 1. Flip world 180 around Z, 2. Add translation
     pos_final = R_v2s.apply(pos) + vicon_world_offset
@@ -101,7 +105,7 @@ def read_trimmed_vicon_csv(p: pathlib.Path):
     
     # We apply the world-flip FIRST (to orient the sensor) 
     # and the local-TCP transformation LAST (to orient the tool)
-    final_rotations = R_v2s * raw_rotations * rot_local 
+    final_rotations = R_v2s * raw_rotations * rot_local
 
     # Convert to axis-angle (rotation vector) as expected by your script later
     rotvec_final = final_rotations.as_rotvec()

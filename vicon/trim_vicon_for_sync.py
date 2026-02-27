@@ -3,9 +3,9 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-csv_dir = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/aligned_vicon_files/aligned_vicon_to_episode/"
-# csv_dir = "/home/hisham246/uwaterloo/cable_route_umi/vicon_trimmed/"
-out_dir = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/vicon_trimmed_3/"
+# csv_dir = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/vicon_trimmed_3/"
+csv_dir = "/home/hisham246/uwaterloo/cable_route_umi/vicon_trimmed/"
+out_dir = "/home/hisham246/uwaterloo/cable_route_umi/vicon_trimmed_no_blue_station/"
 os.makedirs(out_dir, exist_ok=True)
 
 # for the speed plot only (does not affect saved values)

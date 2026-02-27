@@ -30,35 +30,67 @@ from umi.common.timecode_util import mp4_get_start_datetime
 
 DAY = 86400.0
 
+# Dominant
+# def normalize_epoch_day_buckets(video_meta_df: pd.DataFrame) -> pd.DataFrame:
+#     """
+#     Your desired behavior:
+#     - Find dominant epoch-day bucket (most frequent).
+#     - Subtract 86400 seconds from ALL rows in that dominant bucket.
+#     """
+#     df = video_meta_df.copy()
+#     ts = df["start_timestamp"].to_numpy(np.float64)
+#     day_bucket = np.floor(ts / DAY).astype(np.int64)
+
+#     vc = pd.Series(day_bucket).value_counts()
+#     if len(vc) <= 1:
+#         return df
+
+#     dominant_day = int(vc.index[0])  # most frequent bucket
+
+#     mask = (day_bucket == dominant_day)
+#     print("Applying dominant-day shift (-86400s):")
+#     print(f"  dominant_day={dominant_day}")
+#     print(f"  shifting {mask.sum()} / {len(df)} videos by -86400 sec")
+
+#     # optional: print a few
+#     for vd in df.loc[mask, "video_dir"].head(10):
+#         print(f"  - {Path(vd).name}")
+#     if mask.sum() > 10:
+#         print("  ...")
+
+#     df.loc[mask, "start_timestamp"] = df.loc[mask, "start_timestamp"].astype(np.float64) - DAY
+#     df.loc[mask, "end_timestamp"]   = df.loc[mask, "end_timestamp"].astype(np.float64) - DAY
+#     return df
+
+# Nondominant
 def normalize_epoch_day_buckets(video_meta_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Your desired behavior:
+    Revised behavior:
     - Find dominant epoch-day bucket (most frequent).
-    - Subtract 86400 seconds from ALL rows in that dominant bucket.
+    - Subtract 86400 seconds from all rows NOT in that dominant bucket.
     """
     df = video_meta_df.copy()
     ts = df["start_timestamp"].to_numpy(np.float64)
     day_bucket = np.floor(ts / DAY).astype(np.int64)
 
     vc = pd.Series(day_bucket).value_counts()
+    # If there's only one day present, there are no "non-dominant" buckets to shift
     if len(vc) <= 1:
         return df
 
-    dominant_day = int(vc.index[0])  # most frequent bucket
+    dominant_day = vc.index[0] 
 
-    mask = (day_bucket == dominant_day)
-    print("Applying dominant-day shift (-86400s):")
-    print(f"  dominant_day={dominant_day}")
+    # CHANGE: We now mask where the bucket is NOT equal to the dominant day
+    mask = (day_bucket != dominant_day)
+    
+    print("Applying non-dominant-day shift (-86400s):")
+    print(f"  dominant_day={dominant_day} (keeping these as-is)")
     print(f"  shifting {mask.sum()} / {len(df)} videos by -86400 sec")
 
-    # optional: print a few
-    for vd in df.loc[mask, "video_dir"].head(10):
-        print(f"  - {Path(vd).name}")
-    if mask.sum() > 10:
-        print("  ...")
-
+    # Shift the timestamps for the non-dominant buckets
     df.loc[mask, "start_timestamp"] = df.loc[mask, "start_timestamp"].astype(np.float64) - DAY
     df.loc[mask, "end_timestamp"]   = df.loc[mask, "end_timestamp"].astype(np.float64) - DAY
+    
     return df
 
 def shift_after_demo_index(video_meta_df: pd.DataFrame,
@@ -95,7 +127,7 @@ def main(input_dir, output, min_episode_length, ignore_cameras):
     input_path = pathlib.Path(os.path.expanduser(input_dir)).absolute()
     demos_dir = input_path.joinpath('demos')
     if output is None:
-        output = input_path.joinpath('dataset_plan_camera_only.pkl')
+        output = input_path.joinpath('dataset_plan_camera_only_2.pkl')
     else:
         output = pathlib.Path(os.path.expanduser(output)).absolute()
 

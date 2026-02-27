@@ -4,8 +4,8 @@ def natural_key(path: str):
     return [int(s) if s.isdigit() else s.lower()
             for s in re.split(r'(\d+)', os.path.basename(path))]
 
-src_path = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/vicon_logs/"
-dst_path = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/vicon_logs_to_csv/"
+src_path = "/home/hisham246/uwaterloo/cable_route_umi/vicon_logs_2/"
+dst_path = "/home/hisham246/uwaterloo/cable_route_umi/vicon_logs_to_csv_2/"
 os.makedirs(dst_path, exist_ok=True)
 
 # fields after Object_Name in the log

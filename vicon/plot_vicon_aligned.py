@@ -4,7 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
-def plot_all_trajectories(directory='.', file_pattern='aligned_episode_*.csv'):
+def plot_all_trajectories(directory='.', file_pattern='episode_*.csv'):
     # Find all matching files in the directory
     files = glob.glob(os.path.join(directory, file_pattern))
     files.sort()
@@ -22,9 +22,9 @@ def plot_all_trajectories(directory='.', file_pattern='aligned_episode_*.csv'):
         try:
             df = pd.read_csv(f)
             # Ensure the required columns exist
-            required_cols = ['Pos_X', 'Pos_Y', 'Pos_Z']
+            required_cols = ["robot0_eef_pos_0", "robot0_eef_pos_1", "robot0_eef_pos_2"]
             if all(col in df.columns for col in required_cols):
-                ax.plot(df['Pos_X'], df['Pos_Y'], df['Pos_Z'], label=os.path.basename(f))
+                ax.plot(df['robot0_eef_pos_0'], df['robot0_eef_pos_1'], df['robot0_eef_pos_2'], label=os.path.basename(f))
             else:
                 print(f"Skipping {f}: Missing coordinate columns.")
         except Exception as e:
@@ -42,6 +42,31 @@ def plot_all_trajectories(directory='.', file_pattern='aligned_episode_*.csv'):
     plt.show()
     # plt.savefig('trajectories_3d_combined.png')
 
+def plot_one_by_one(directory='.', file_pattern='episode_*.csv'):
+    files = glob.glob(os.path.join(directory, file_pattern))
+    files.sort()
+    
+    for f in files:
+        df = pd.read_csv(f)
+        fig = plt.figure(figsize=(10, 8))
+        ax = fig.add_subplot(111, projection='3d')
+        
+        # Plot the single trajectory
+        ax.plot(df['robot0_eef_pos_0'], df['robot0_eef_pos_1'], df['robot0_eef_pos_2'])
+        
+        ax.set_title(f"Trajectory: {os.path.basename(f)}")
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_zlabel('Z')
+        
+        plt.show(block=False) # Show without blocking code execution
+        print(f"Showing {f}. Click the plot or press a key for next...")
+        
+        plt.waitforbuttonpress() 
+        plt.close(fig) # Close current window to open the next one
+
 if __name__ == "__main__":
-    directory = '/home/hisham246/uwaterloo/peg_in_hole_delta_umi/vicon_trimmed_3'  # Change this to your directory if needed
+    directory = '/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon_v3/vicon_final'
+    # directory = '/home/hisham246/uwaterloo/peg_in_hole_delta_umi/vicon_final'
     plot_all_trajectories(directory=directory)
+    plot_one_by_one(directory=directory)

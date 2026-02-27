@@ -222,9 +222,9 @@ def animate_single_csv(path, stride=1, axis_len=0.03, interval_ms=25, save_path=
         p = pos_s[i]
         R = R_s[i]
 
-        print("tool x in world:", R[:,0])
-        print("tool y in world:", R[:,1])
-        print("tool z in world:", R[:,2])
+        # print("tool x in world:", R[:,0])
+        # print("tool y in world:", R[:,1])
+        # print("tool z in world:", R[:,2])
 
 
         _set_axis_lines_and_labels(p, R, x_line, y_line, z_line, x_txt, y_txt, z_txt, axis_len)
@@ -354,8 +354,10 @@ def animate_overlay_two_csv(path_a, path_b, stride=1, axis_len=0.03, interval_ms
 # Example main
 # ----------------------------
 if __name__ == "__main__":
-    # episode_path = "/home/hisham246/uwaterloo/peg_in_hole_umi_with_vicon/slam_segmented/episode_1.csv"
-    episode_path = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/vicon_final/episode_1.csv"
+    # episode_path = "/home/hisham246/uwaterloo/cable_route_umi/vicon_final/episode_1.csv"
+    episode_path = "/home/hisham246/uwaterloo/cable_route_umi/vicon_all_stations/episode_1.csv"
+
+    # episode_path = "/home/hisham246/uwaterloo/peg_in_hole_delta_umi/vicon_final/episode_1.csv"
     # episode_path = "/home/hisham246/uwaterloo/umi/reaching_ball_multimodal/csv_filtered/episode_1.csv"
 
     print_final_displacement(episode_path)

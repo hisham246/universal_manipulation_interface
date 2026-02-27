@@ -75,9 +75,9 @@ def main(input, output, out_res, out_fov, compression_level,
     for ipath in input:
         ipath = pathlib.Path(os.path.expanduser(ipath)).absolute()
         demos_path = ipath.joinpath('demos')
-        plan_path = ipath.joinpath('dataset_plan_camera_only.pkl')
+        plan_path = ipath.joinpath('dataset_plan_camera_only_2.pkl')
         if not plan_path.is_file():
-            print(f"Skipping {ipath.name}: no dataset_plan_camera_only.pkl")
+            print(f"Skipping {ipath.name}: no dataset_plan_camera_only_2.pkl")
             continue
         
         plan = pickle.load(plan_path.open('rb'))
